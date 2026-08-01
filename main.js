@@ -33,6 +33,7 @@
     btnSound: $('btn-sound'),
     btnAi: $('btn-ai'),
     aiEngine: $('ai-engine'),
+    aiLearnHuman: $('ai-learn-human'),
     aiStatus: $('ai-status')
   };
 
@@ -43,6 +44,7 @@
   let aiLastMoves = '';
   let aiEngine = 'heuristic'; // heuristic | rl
   const rlAgent = new TetrisAI.RLAgent();
+  let learnHuman = true; // 人玩时投喂 RL（模仿学习）
 
   const BEST_KEY = 'tetris-highscore';
   const SOUND_KEY = 'tetris-sound';
@@ -307,7 +309,7 @@
     els.aiEngine.value = aiEngine;
     if (!aiMode) {
       setAIStatus(aiEngine === 'rl'
-        ? '强化学习就绪 · 已学 ' + rlAgent.episodes + ' 局（越玩越强）'
+        ? '强化学习就绪 · 已学 ' + rlAgent.episodes + ' 局' + (learnHuman ? ' · 正在学习人类操作' : '')
         : '内置算法就绪 · 点击开启托管', 'ok');
       return;
     }
@@ -395,6 +397,18 @@
     aiEngine = els.aiEngine.value === 'rl' ? 'rl' : 'heuristic';
     updateAIUI();
   });
+
+  els.aiLearnHuman.addEventListener('change', () => {
+    learnHuman = els.aiLearnHuman.checked;
+    updateAIUI();
+  });
+
+  // 人玩时投喂 RL：方块锁定瞬间（AI 未托管）模仿人类落点
+  game.onBeforeLock = (g) => {
+    if (!aiMode && learnHuman && aiEngine === 'rl' && g.current) {
+      rlAgent.imitate(g);
+    }
+  };
   /* ---------- 动作（统一入口，带音效） ---------- */
   function doAction(action) {
     if (action === 'pause') {

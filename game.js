@@ -177,6 +177,10 @@
     lock() {
       const p = this.current;
       if (!p) return;
+      // 锁定前钩子：供 AI 模仿学习等观察“人类落点”（此时棋盘未含本方块）
+      if (this.onBeforeLock) {
+        try { this.onBeforeLock(this); } catch (e) { /* 忽略回调错误 */ }
+      }
       for (let r = 0; r < p.matrix.length; r++) {
         for (let c = 0; c < p.matrix[r].length; c++) {
           if (!p.matrix[r][c]) continue;

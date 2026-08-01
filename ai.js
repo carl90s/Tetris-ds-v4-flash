@@ -174,6 +174,7 @@
         s.full = cleared;
         out.push({
           rot, col, y,
+          matrix: m.map(r => r.slice()),
           boardAfter: placed,
           phi: { full: s.full, aggH: s.aggH, maxH: s.maxH, holes: s.holes, bump: s.bump, rowTrans: s.rowTrans }
         });
@@ -321,6 +322,63 @@
       this.eps = Math.max(0.03, this.eps * 0.97);
       this.steps = [];
       this.episodeReward = 0;
+      this.save();
+    }
+
+    /** 两矩阵形状是否相同（非零格一致） */
+    static matricesEqual(a, b) {
+      if (!a || !b || a.length !== b.length || a[0].length !== b[0].length) return false;
+      for (let r = 0; r < a.length; r++) {
+        for (let c = 0; c < a[r].length; c++) {
+          if (!!a[r][c] !== !!b[r][c]) return false;
+        }
+      }
+      return true;
+    }
+
+    /**
+     * 模仿学习（Behavior Cloning）：人玩时调用。
+     * 把人类锁定方块的位置作为监督信号，用 max-margin 更新权重，
+     * 使"人类选择的落点"的价值高于其他候选（向高手操作靠拢）。
+     * @param {Object} game 锁定前的游戏（current 仍是人类刚放的方块，棋盘未含它）
+     */
+    imitate(game) {
+      if (!game.current) return;
+      const cands = enumeratePlacements(game);
+      if (!cands.length) return;
+      let human = null;
+      for (const c of cands) {
+        if (c.col === game.current.x && RLAgent.matricesEqual(c.matrix, game.current.matrix)) {
+          human = c;
+          break;
+        }
+      }
+      if (!human) return; // 人类落点不在枚举内（异常情况忽略）
+      const qH = this.q(human.phi);
+      const margin = 1.0;
+      let updated = false;
+      for (const c of cands) {
+        if (c === human) continue;
+        const diff = qH - this.q(c.phi);
+        if (diff < margin) {
+          const f = this.alpha * (margin - diff);
+          this.w[0] += f * (human.phi.full - c.phi.full);
+          this.w[1] += f * (-(human.phi.aggH - c.phi.aggH));
+          this.w[2] += f * (-(human.phi.maxH - c.phi.maxH));
+          this.w[3] += f * (-(human.phi.holes - c.phi.holes));
+          this.w[4] += f * (-(human.phi.bump - c.phi.bump));
+          this.w[5] += f * (-(human.phi.rowTrans - c.phi.rowTrans));
+          updated = true;
+        }
+      }
+      if (!updated) return;
+      // 与 observe 相同的权重范围限制
+      this.w[0] = Math.min(2000, Math.max(200, this.w[0]));
+      this.w[1] = Math.min(100, Math.max(0.8, this.w[1]));
+      this.w[2] = Math.min(60, Math.max(1.5, this.w[2]));
+      this.w[3] = Math.min(200, Math.max(15, this.w[3]));
+      this.w[4] = Math.min(40, Math.max(0.8, this.w[4]));
+      this.w[5] = Math.min(200, Math.max(8, this.w[5]));
       this.save();
     }
 
