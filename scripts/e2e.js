@@ -108,14 +108,15 @@ const EDGE = [
   await apage.goto('http://localhost:8901/index.html', { waitUntil: 'networkidle0' });
   await new Promise(r => setTimeout(r, 400));
 
-  // 点“开启 AI 托管”（未配置 → 打开设置弹窗并记录意图）
-  await apage.click('#btn-ai');
+  // 打开 AI 设置弹窗（切到大模型引擎 + 填 mock 配置）
+  await apage.$eval('#btn-ai-settings', el => el.click());
   await new Promise(r => setTimeout(r, 200));
   out.aiModalShown = await apage.$eval('#ai-modal', el => !el.classList.contains('hidden'));
   // 直接赋值（type() 会追加到预填值之后，污染配置）
   await apage.$eval('#ai-baseurl', el => { el.value = 'https://api.mock.local/v1'; el.dispatchEvent(new Event('input')); });
   await apage.$eval('#ai-apikey', el => { el.value = 'sk-e2e-mock'; el.dispatchEvent(new Event('input')); });
   await apage.$eval('#ai-model', el => { el.value = 'mock-model'; el.dispatchEvent(new Event('input')); });
+  await apage.$eval('#ai-engine', el => { el.value = 'llm'; el.dispatchEvent(new Event('change')); });
   // 放慢动作间隔，配合最小回合间隔，避免 mock 零延迟导致快速堆满
   await apage.evaluate(() => {
     const d = document.getElementById('ai-delay');
@@ -125,7 +126,9 @@ const EDGE = [
   await apage.click('#ai-save');
   await new Promise(r => setTimeout(r, 200));
   out.aiModalClosed = await apage.$eval('#ai-modal', el => el.classList.contains('hidden'));
-  // 保存配置后应自动进入 AI 托管（无需再点开启）
+  // 引擎已切到 llm 且配置完成，点“开启 AI 托管”启动大模型托管
+  await apage.$eval('#btn-ai', el => el.click());
+  await new Promise(r => setTimeout(r, 200));
   out.aiAutoStarted = await apage.$eval('#btn-ai', el => el.classList.contains('on'));
   // 等 AI 放置约 3 个方块后立即停用（mock 为无脑 hard，长时间运行会堆满棋盘）
   const aiDeadline = Date.now() + 5000;
@@ -141,7 +144,7 @@ const EDGE = [
   out.aiPlacementWorks = out.aiScore > 0;
 
   // 停用 AI：玩家键盘恢复
-  await apage.click('#btn-ai');
+  await apage.$eval('#btn-ai', el => el.click());
   await new Promise(r => setTimeout(r, 200));
   out.aiModeOff = await apage.$eval('#btn-ai', el => el.classList.contains('on') === false);
   await apage.keyboard.press('ArrowRight'); // 停用后键盘应恢复控制
@@ -166,12 +169,15 @@ const EDGE = [
   await fpage.goto('http://localhost:8901/index.html', { waitUntil: 'networkidle0' });
   await new Promise(r => setTimeout(r, 400));
   // Puppeteer 坐标点击在该布局下偶发失败，统一用 DOM click 触发（功能等价）
-  await fpage.$eval('#btn-ai', el => el.click()); // 未配置 → 弹窗
+  await fpage.$eval('#btn-ai-settings', el => el.click()); // 打开设置弹窗
   await new Promise(r => setTimeout(r, 200));
   await fpage.$eval('#ai-baseurl', el => { el.value = 'https://api.mock.local/v1'; el.dispatchEvent(new Event('input')); });
   await fpage.$eval('#ai-apikey', el => { el.value = 'sk-e2e-mock'; el.dispatchEvent(new Event('input')); });
   await fpage.$eval('#ai-model', el => { el.value = 'mock-model'; el.dispatchEvent(new Event('input')); });
-  await fpage.$eval('#ai-save', el => el.click()); // 自动开启
+  await fpage.$eval('#ai-engine', el => { el.value = 'llm'; el.dispatchEvent(new Event('change')); });
+  await fpage.$eval('#ai-save', el => el.click());
+  await new Promise(r => setTimeout(r, 200));
+  await fpage.$eval('#btn-ai', el => el.click()); // 开启大模型托管 → 请求 500 → 失败停用
   // 轮询等待错误出现（避免固定等待的竞态）
   const fDeadline = Date.now() + 5000;
   while (Date.now() < fDeadline) {
@@ -183,6 +189,20 @@ const EDGE = [
   out.faultStatusText = await fpage.$eval('#ai-status', el => el.textContent);
   out.faultStopped = await fpage.$eval('#btn-ai', el => !el.classList.contains('on'));
   out.faultErrorVisible = out.faultStatusText.includes('失败') || out.faultStatusText.includes('⚠');
+
+  // ---- 内置算法引擎：免配置直接开启并自动玩 ----
+  const actx = await browser.createBrowserContext();
+  const apage2 = await actx.newPage();
+  apage2.on('pageerror', e => errors.push('[algo pageerror] ' + e.message));
+  await apage2.goto('http://localhost:8901/index.html', { waitUntil: 'networkidle0' });
+  await new Promise(r => setTimeout(r, 400));
+  await apage2.$eval('#btn-ai', el => el.click()); // 算法引擎无需配置，直接开启
+  await new Promise(r => setTimeout(r, 3000));
+  out.algoOn = await apage2.$eval('#btn-ai', el => el.classList.contains('on'));
+  out.algoScore = await apage2.$eval('#stat-score', el => Number(el.textContent));
+  out.algoLines = await apage2.$eval('#stat-lines', el => Number(el.textContent));
+  out.algoWorks = out.algoOn && out.algoScore > 0;
+  await actx.close();
 
   await page.screenshot({ path: path.join(__dirname, '..', 'shot-e2e.png') });
   out.errors = errors;
@@ -197,6 +217,7 @@ const EDGE = [
     || !out.touchControlsVisible
     || out.touchButtonsMobile < 6
     || out.scoreAfterTouchHard <= 0
+    || !out.algoWorks
     || !out.aiModalShown
     || !out.aiModalClosed
     || !out.aiAutoStarted

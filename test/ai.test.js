@@ -274,6 +274,83 @@ test('buildUserPrompt：单回合模式不含批量要求', () => {
   const g = playingGame();
   const p = AI.buildUserPrompt(g, 1);
   assert.ok(!p.includes('方块 2'), '单回合不应列出后续方块');
-  assert.ok(p.includes('{"moves":['), '单回合应使用 moves 格式');
+  assert.ok(p.includes('{"col":'), '单回合应使用目标列格式');
   assert.ok(!p.includes('turns 数组'), '单回合不应要求 turns');
+});
+test('columnHeights：计算各列堆叠高度', () => {
+  const g = playingGame();
+  g.board[19][2] = '#c';
+  g.board[19][3] = '#c';
+  const hs = AI.columnHeights(g);
+  assert.equal(hs[2], 1);
+  assert.equal(hs[3], 1);
+  assert.equal(hs[0], 0);
+  g.board[18][5] = '#c';
+  assert.equal(AI.columnHeights(g)[5], 2);
+});
+
+test('buildUserPrompt：包含各列堆叠高度', () => {
+  const g = playingGame();
+  const p = AI.buildUserPrompt(g, 1);
+  assert.ok(p.includes('各列堆叠高度'));
+  assert.ok(/\[\d+(, \d+)*\]/.test(p), '应输出 10 个数字的数组');
+});
+test('parseResponse：目标列格式', () => {
+  const r = parseResponse('{"turns":[{"col":5,"spin":true},{"col":2,"spin":false}],"comment":"批量"}');
+  assert.deepEqual(r.turns, [{ col: 5, spin: true }, { col: 2, spin: false }]);
+  const s = parseResponse('{"col":3,"spin":true,"comment":"放3"}');
+  assert.deepEqual(s.turns, [{ col: 3, spin: true }]);
+});
+
+test('playTurns：目标列自动移动落底', async () => {
+  const g = playingGame();
+  g.current = { type: 'O', matrix: SHAPES.O.matrix, color: SHAPES.O.color, x: 4, y: 0 };
+  g.updateGhost();
+  const ai = aiWith(mockFetch({ choices: [{ message: { content: '{"col":2,"spin":false,"comment":"放2列"}' } }] }));
+  const r = await ai.playTurns(g);
+  assert.equal(r.turns[0].col, 2);
+  assert.ok(r.turns[0].applied.includes('left'), '应自动左移到目标列');
+  assert.ok(r.turns[0].applied.includes('hard'), '应落底');
+  assert.ok(g.board[19][2] && g.board[19][3], 'O 方块应落在目标列 2 的底部');
+});
+test('planBestPlacement：空棋盘返回有效落点', () => {
+  const g = playingGame();
+  const plan = AI.planBestPlacement(g);
+  assert.ok(plan, '应有落点');
+  assert.ok(plan.rot >= 0 && plan.rot <= 3);
+  assert.ok(plan.col >= 0 && plan.col <= 9);
+});
+
+test('planBestPlacement：优先选择能消行的位置', () => {
+  const g = playingGame();
+  // 底行只留 3~6 列空，I 横放 col 3 可填满整行
+  g.board[19] = Array(COLS).fill('#888').map((v, i) => (i >= 3 && i <= 6 ? 0 : v));
+  g.current = { type: 'I', matrix: SHAPES.I.matrix.map(r => r.slice()), color: SHAPES.I.color, x: 3, y: 17 };
+  g.updateGhost();
+  const plan = AI.planBestPlacement(g);
+  assert.ok(plan, '应有落点');
+  assert.equal(plan.rot, 0, 'I 应保持横向');
+  assert.equal(plan.col, 3, '应选能消行的列 3');
+});
+
+test('算法引擎：连续放置 100 个方块能大量消行', () => {
+  const g = playingGame();
+  let placed = 0;
+  while (placed < 100 && g.status === 'playing') {
+    const plan = AI.planBestPlacement(g);
+    if (plan) {
+      for (let i = 0; i < plan.rot; i++) g.rotate(1);
+      let guard = 0;
+      const target = plan.col;
+      while (g.current && g.current.x < target && guard++ < 12) g.tryMove(1, 0);
+      while (g.current && g.current.x > target && guard++ < 12) g.tryMove(-1, 0);
+      g.hardDrop();
+    } else {
+      g.hardDrop();
+    }
+    placed++;
+    if (g.status === 'clearing') g.clearRows();
+  }
+  assert.ok(g.lines > 0, '应至少消行（实际 ' + g.lines + ' 行）');
+  assert.equal(placed, 100, '应能连续放置 100 个方块不堆满');
 });

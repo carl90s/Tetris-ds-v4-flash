@@ -62,7 +62,7 @@
   }
 
   function defaultSettings() {
-    return { provider: 'deepseek', baseUrl: PROVIDERS.deepseek.baseUrl, apiKey: '', model: PROVIDERS.deepseek.model, moveDelay: 60, batchSize: 3 };
+    return { provider: 'deepseek', baseUrl: PROVIDERS.deepseek.baseUrl, apiKey: '', model: PROVIDERS.deepseek.model, moveDelay: 60, batchSize: 3, engine: 'algorithm' };
   }
   function loadSettings() {
     const d = defaultSettings();
@@ -76,14 +76,15 @@
         apiKey: typeof s.apiKey === 'string' ? s.apiKey : '',
         model: typeof s.model === 'string' && s.model ? s.model : d.model,
         moveDelay: Number.isFinite(s.moveDelay) ? Math.min(200, Math.max(10, s.moveDelay)) : d.moveDelay,
-        batchSize: s.batchSize === 1 ? 1 : 3
+        batchSize: s.batchSize === 1 ? 1 : 3,
+        engine: s.engine === 'llm' ? 'llm' : 'algorithm'
       };
     } catch (e) { return d; }
   }
 
   function saveSettings(s) {
     lsSet(SETTINGS_KEY, JSON.stringify({
-      provider: s.provider, baseUrl: s.baseUrl, apiKey: s.apiKey, model: s.model, moveDelay: s.moveDelay, batchSize: s.batchSize
+      provider: s.provider, baseUrl: s.baseUrl, apiKey: s.apiKey, model: s.model, moveDelay: s.moveDelay, batchSize: s.batchSize, engine: s.engine
     }));
   }
 
@@ -92,6 +93,21 @@
     return game.board.map(row =>
       row.map(cell => (cell ? '#' : '.')).join('')
     ).join('\n');
+  }
+
+  /** 各列堆叠高度（从底部往上数，0 = 空列） */
+  function columnHeights(game) {
+    const COLS = game.constructor.COLS || 10;
+    const ROWS = game.constructor.ROWS || 20;
+    const hs = [];
+    for (let c = 0; c < COLS; c++) {
+      let h = 0;
+      for (let r = ROWS - 1; r >= 0; r--) {
+        if (game.board[r][c]) { h = ROWS - r; break; }
+      }
+      hs.push(h);
+    }
+    return hs;
   }
 
   /** 当前方块的紧凑朝向矩阵（去掉全零行/列） */
@@ -139,6 +155,17 @@
       '6. 输出中不能包含注释文字、逗号缺失、多余标点等 JSON 语法问题。',
       '7. 严格只输出一个 JSON 对象。禁止输出任何解释、复述、提示或说明文字——你的回复必须能被 JSON.parse 直接解析。',
       '8. 如果实在无法判断动作，也请输出合法的兜底 JSON，例如 {"turns":[{"moves":["hard"]},{"moves":["hard"]},{"moves":["hard"]}],"comment":"兜底"}。',
+      '决策规则（严格按此流程选择目标列）：',
+      '1. 分别设想方块放在第 0~9 列的落点（考虑 spin 旋转后的形状与下落）；',
+      '2. 若某列放下后能填满一整行（与其他已堆方块齐平），优先选该列——消行得分最高；',
+      '3. 否则选择放置后让整堆"最高列最矮、最平坦"的列：参考各列堆叠高度，把方块填在最低的列；',
+      '4. 绝不把连续多个方块放在同一列！要交替利用不同列，让方块横向铺开、互相衔接，最终拼成完整行；',
+      '5. 避免制造 1 格宽的竖直洞；',
+      '6. 只有当各列高度大致相同时，才优先选择中央列。',
+      '输出格式（推荐，只决定目标列与是否旋转，移动由系统自动完成）：',
+      '{"turns":[{"col":5,"spin":true,"comment":"旋转后放第5列"},{"col":2,"spin":false,"comment":"直接放第2列"},{"col":8,"spin":true,"comment":"旋转后放第8列"}]}',
+      '含义：col 为该方块最终占据的最左列（0~9 的整数）；spin=true 表示先顺时针旋转一次。',
+      '（也可以输出完整动作序列格式：{"turns":[{"moves":["left","rotate","hard"]},...]}，二者等价。）',
       '动作序列示例：',
       '{"moves":["right","rotate","right","right","hard"],"comment":"旋转后放到第 6 列"}',
       '{"moves":["left","left","hard"],"comment":"放到第 3 列"}',
@@ -154,6 +181,9 @@
     const lines = [
       '当前棋盘（.空 #已填）：',
       serializeBoard(game),
+      '',
+      '各列堆叠高度（从底部往上数，0=空列）：',
+      '[' + columnHeights(game).join(', ') + ']',
       '',
       BATCH > 1 ? ('即将连续放置 ' + BATCH + ' 个方块（按顺序）：') : '当前方块：'
     ];
@@ -171,13 +201,13 @@
     }
     lines.push('');
     if (BATCH > 1) {
-      lines.push('请为每个方块分别规划放置动作，输出格式：');
-      lines.push('{"turns":[{"moves":["left","right","rotate","soft","hard"]},{"moves":[...]},{"moves":[...]}],"comment":"一句话说明"}');
-      lines.push('turns 数组长度必须等于 ' + BATCH + '；每个方块的动作中 "hard" 必须是最后一个动作。');
+      lines.push('请为每个方块分别输出目标列，输出格式：');
+      lines.push('{"turns":[{"col":5,"spin":true,"comment":"..."},{"col":2,"spin":false,"comment":"..."},{"col":8,"spin":true,"comment":"..."}]}');
+      lines.push('turns 数组长度必须等于 ' + BATCH + '；col 是方块最终占据的最左列（0~9）。');
     } else {
-      lines.push('请为当前方块规划放置动作，输出格式：');
-      lines.push('{"moves":["left","right","rotate","soft","hard"],"comment":"一句话说明"}');
-      lines.push('moves 数组中 "hard" 必须是最后一个动作。');
+      lines.push('请为当前方块输出目标列，输出格式：');
+      lines.push('{"col":5,"spin":true,"comment":"..."}');
+      lines.push('col 是该方块最终占据的最左列（0~9）。');
     }
     return lines.join('\n');
   }
@@ -220,14 +250,26 @@
     }
     if (!obj) return { turns: [], comment: '', moves: [] };
     const comment = typeof obj.comment === 'string' ? obj.comment.slice(0, 60) : '';
-    // 批量格式：{"turns":[{"moves":[...]},...]}
+    // 批量格式：{"turns":[{moves:[...]}]} 或 {"turns":[{col,spin}]}
     if (Array.isArray(obj.turns)) {
-      const turns = obj.turns.slice(0, 6).map(turn => ({ moves: normalizeMovesList(turn && turn.moves) }));
-      return { turns, comment, moves: turns.length ? turns[0].moves : [] };
+      const turns = obj.turns.slice(0, 6).map(normalizeTurn);
+      return { turns, comment, moves: turns.length ? (turns[0].moves || []) : [] };
     }
-    // 单回合格式（兼容）：{"moves":[...]}
+    // 单回合格式：{"col":5,"spin":true} 或 {"moves":[...]}
+    if (Number.isInteger(obj.col)) {
+      const t = normalizeTurn(obj);
+      return { turns: [t], comment, moves: t.moves || [] };
+    }
     const moves = normalizeMovesList(obj.moves);
     return { turns: [{ moves }], comment, moves };
+  }
+
+  /** 归一化单个 turn：目标列格式 {col, spin} 或动作序列 {moves} */
+  function normalizeTurn(turn) {
+    if (turn && Number.isInteger(turn.col)) {
+      return { col: Math.min(9, Math.max(0, turn.col)), spin: !!turn.spin };
+    }
+    return { moves: normalizeMovesList(turn && turn.moves) };
   }
 
   class AIController {
@@ -346,18 +388,37 @@
       for (const turn of turns) {
         if (game.generation !== gen || game.status !== 'playing' || !game.current) break;
         const applied = [];
-        for (const m of turn.moves) {
-          if (game.generation !== gen || game.status !== 'playing' || !game.current) break;
-          if (this.applyMove(game, m)) applied.push(m);
-          if (m === 'hard') break; // 已锁定，本段结束
-          if (this.settings.moveDelay > 0) await sleep(this.settings.moveDelay);
+        if (typeof turn.col === 'number') {
+          // 目标列模式：旋转 → 系统自动水平移动到目标列 → 落底
+          if (turn.spin && game.rotate(1)) applied.push('rotate');
+          const COLS = game.constructor.COLS || 10;
+          const target = Math.min(COLS - 1, Math.max(0, turn.col));
+          let guard = 0;
+          while (game.status === 'playing' && game.current && game.current.x < target && guard++ < 12) {
+            if (game.tryMove(1, 0)) applied.push('right'); else break;
+          }
+          while (game.status === 'playing' && game.current && game.current.x > target && guard++ < 12) {
+            if (game.tryMove(-1, 0)) applied.push('left'); else break;
+          }
+          if (game.status === 'playing' && game.current) {
+            game.hardDrop();
+            applied.push('hard');
+          }
+          executed.push({ col: turn.col, spin: !!turn.spin, moves: [], applied });
+        } else {
+          for (const m of turn.moves) {
+            if (game.generation !== gen || game.status !== 'playing' || !game.current) break;
+            if (this.applyMove(game, m)) applied.push(m);
+            if (m === 'hard') break; // 已锁定，本段结束
+            if (this.settings.moveDelay > 0) await sleep(this.settings.moveDelay);
+          }
+          // 兜底：动作用尽但方块仍在空中 → 硬降锁定（本段已 hard 过则跳过）
+          if (game.generation === gen && game.status === 'playing' && game.current && !applied.includes('hard')) {
+            game.hardDrop();
+            applied.push('hard');
+          }
+          executed.push({ moves: turn.moves, applied });
         }
-        // 兜底：动作用尽但方块仍在空中 → 硬降锁定（本段已 hard 过则跳过）
-        if (game.generation === gen && game.status === 'playing' && game.current && !applied.includes('hard')) {
-          game.hardDrop();
-          applied.push('hard');
-        }
-        executed.push({ moves: turn.moves, applied });
         if (game.status !== 'playing') break; // 消行动画/结束：交由主循环推进
       }
       return { turns: executed, comment, raw, done: game.status === 'playing' };
@@ -404,5 +465,91 @@
 
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-  return { AIController, PROVIDERS, loadSettings, saveSettings, parseResponse, serializeBoard, buildSystemPrompt, buildUserPrompt };
+  /* ============ 内置算法引擎（确定性启发式，真会消行） ============ */
+  function collidesAt(board, m, col, y) {
+    const COLS = board[0].length, ROWS = board.length;
+    for (let r = 0; r < m.length; r++) {
+      for (let c = 0; c < m[r].length; c++) {
+        if (!m[r][c]) continue;
+        const bx = col + c, by = y + r;
+        if (bx < 0 || bx >= COLS || by >= ROWS) return true;
+        if (by >= 0 && board[by][bx]) return true;
+      }
+    }
+    return false;
+  }
+
+  /** 模拟方块在 (col) 处的下落高度（返回 y，放不下返回 null） */
+  function dropY(game, m, col) {
+    const ROWS = game.constructor.ROWS;
+    let y = 0;
+    if (collidesAt(game.board, m, col, y)) return null;
+    while (!collidesAt(game.board, m, col, y + 1)) {
+      y++;
+      if (y > ROWS) return null;
+    }
+    return y;
+  }
+
+  /** 放置并评估：消行数 / 高度 / 洞 / 凸度 */
+  function placeAndEval(game, m, col, y) {
+    const COLS = game.constructor.COLS, ROWS = game.constructor.ROWS;
+    const board = game.board.map(row => row.slice());
+    for (let r = 0; r < m.length; r++) {
+      for (let c = 0; c < m[r].length; c++) {
+        if (m[r][c]) board[y + r][col + c] = m[r][c];
+      }
+    }
+    let full = 0;
+    for (let r = 0; r < ROWS; r++) {
+      if (board[r].every(v => v)) full++;
+    }
+    const hs = [];
+    let holes = 0, aggH = 0;
+    for (let c = 0; c < COLS; c++) {
+      let h = 0, seen = false, colHoles = 0;
+      // 洞：从顶部往下，遇到第一个方块后，剩余空格（被方块盖住、无法从上方填满）
+      for (let r = 0; r < ROWS; r++) {
+        if (board[r][c]) {
+          if (!seen) { seen = true; h = ROWS - r; }
+        } else if (seen) {
+          colHoles++;
+        }
+      }
+      hs.push(h);
+      aggH += h;
+      holes += colHoles;
+    }
+    let bump = 0;
+    for (let c = 1; c < COLS; c++) bump += Math.abs(hs[c] - hs[c - 1]);
+    return { full, aggH, holes, bump };
+  }
+
+  /**
+   * 内置算法：枚举 4 个旋转 × 所有列，按启发式评分选最优落点。
+   * @returns {{rot:number, col:number, score:number}|null}
+   */
+  function planBestPlacement(game) {
+    if (!game.current) return null;
+    const COLS = game.constructor.COLS;
+    const rotateMatrix = game.constructor.rotateMatrix;
+    let m = game.current.matrix.map(r => r.slice());
+    let best = null, bestScore = -Infinity;
+    for (let rot = 0; rot < 4; rot++) {
+      for (let col = 0; col < COLS; col++) {
+        const y = dropY(game, m, col);
+        if (y === null) continue;
+        const s = placeAndEval(game, m, col, y);
+        const score = s.full * 1000 - s.aggH * 3 - s.holes * 60 - s.bump * 4;
+        if (score > bestScore) {
+          bestScore = score;
+          best = { rot, col, score };
+        }
+      }
+      m = rotateMatrix(m);
+    }
+    return best;
+  }
+
+  return { AIController, PROVIDERS, loadSettings, saveSettings, parseResponse, serializeBoard, columnHeights, buildSystemPrompt, buildUserPrompt, planBestPlacement };
 });

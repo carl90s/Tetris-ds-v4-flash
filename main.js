@@ -42,6 +42,7 @@
     aiDelay: $('ai-delay'),
     aiDelayVal: $('ai-delay-val'),
     aiBatch: $('ai-batch'),
+    aiEngine: $('ai-engine'),
     aiMsg: $('ai-msg'),
     aiTest: $('ai-test'),
     aiSave: $('ai-save'),
@@ -318,8 +319,11 @@
     els.btnAi.classList.toggle('on', aiMode);
     els.btnAi.classList.toggle('off', !aiMode);
     if (aiLastError) { setAIStatus('⚠ ' + aiLastError, 'err'); return; }
-    if (!ai.configured) { setAIStatus('未配置 AI · 点击“AI 设置”填写', 'warn'); return; }
-    if (!aiMode) { setAIStatus('已配置 · 点击开启托管', 'ok'); return; }
+    if (ai.settings.engine === 'llm' && !ai.configured) { setAIStatus('未配置大模型 · 点击“AI 设置”填写', 'warn'); return; }
+    if (!aiMode) {
+      setAIStatus(ai.settings.engine === 'algorithm' ? '内置算法就绪 · 点击开启托管' : '已配置 · 点击开启托管', 'ok');
+      return;
+    }
     if (aiBusy) {
       setAIStatus('AI 思考中… ' + Math.round((Date.now() - aiThinkStart) / 1000) + 's', 'ok');
       return;
@@ -338,26 +342,51 @@
     aiBusy = true;
     updateAIUI();
     try {
-      const result = await ai.playTurns(game);
-      aiFailCount = 0;
-      aiLastError = '';
-      aiLastComment = result.comment || '';
-      const first = result.turns[0];
-      aiLastMoves = first && first.applied.length ? '[' + first.applied.join(', ') + ']' : '';
-      const totalMoves = result.turns.reduce((n, t) => n + t.moves.length, 0);
-      if (totalMoves === 0) {
-        aiEmptyCount++;
-        if (aiEmptyCount >= 3) {
-          aiMode = false; // 模型始终不返回有效动作，停用避免无限堆叠
-          aiPendingStart = false;
-          const rawInfo = result.raw ? ('模型回复：' + result.raw.slice(0, 60) + '…') : ('模型回复为空（可能是 deepseek-reasoner 等推理模型输出超时，建议改用 deepseek-chat / gpt-4o-mini）');
-          aiLastError = '模型连续 3 次未返回有效动作，已停用托管。' + rawInfo;
-        } else {
-          aiLastError = '模型未返回有效动作（第 ' + aiEmptyCount + ' 次）' + (result.raw ? '，回复：' + result.raw.slice(0, 40) : '（回复为空，疑似推理模型）');
-        }
-        if (result.raw) console.warn('[AI] 未解析出动作，模型原始响应：', result.raw);
-      } else {
+      if (ai.settings.engine === 'algorithm') {
+        // ==== 内置算法引擎：毫秒级、零成本、会消行 ====
+        aiFailCount = 0;
         aiEmptyCount = 0;
+        aiLastError = '';
+        aiLastComment = '内置算法';
+        const plan = TetrisAI.planBestPlacement(game);
+        if (plan && game.status === 'playing') {
+          for (let i = 0; i < plan.rot && game.status === 'playing' && game.current; i++) game.rotate(1);
+          const COLS = game.constructor.COLS || 10;
+          const target = Math.min(COLS - 1, Math.max(0, plan.col));
+          let guard = 0;
+          while (game.status === 'playing' && game.current && game.current.x < target && guard++ < 12) game.tryMove(1, 0);
+          while (game.status === 'playing' && game.current && game.current.x > target && guard++ < 12) game.tryMove(-1, 0);
+          if (game.status === 'playing' && game.current) {
+            game.hardDrop();
+            aiLastMoves = '落点 第' + plan.col + '列 × 旋转' + plan.rot;
+          }
+        } else if (game.status === 'playing' && game.current) {
+          game.hardDrop();
+          aiLastMoves = '无安全落点，直落';
+        }
+      } else {
+        // ==== 大模型引擎 ====
+        const result = await ai.playTurns(game);
+        aiFailCount = 0;
+        aiLastError = '';
+        aiLastComment = result.comment || '';
+        const first = result.turns[0];
+        aiLastMoves = first && first.applied.length ? '[' + first.applied.join(', ') + ']' : '';
+        const totalMoves = result.turns.reduce((n, t) => n + (typeof t.col === 'number' ? 1 : t.moves.length), 0);
+        if (totalMoves === 0) {
+          aiEmptyCount++;
+          if (aiEmptyCount >= 3) {
+            aiMode = false; // 模型始终不返回有效动作，停用避免无限堆叠
+            aiPendingStart = false;
+            const rawInfo = result.raw ? ('模型回复：' + result.raw.slice(0, 60) + '…') : ('模型回复为空（可能是推理模型或输出超时，建议改用 deepseek-v4-flash）');
+            aiLastError = '模型连续 3 次未返回有效动作，已停用托管。' + rawInfo;
+          } else {
+            aiLastError = '模型未返回有效动作（第 ' + aiEmptyCount + ' 次）' + (result.raw ? '，回复：' + result.raw.slice(0, 40) : '（回复为空）');
+          }
+          if (result.raw) console.warn('[AI] 未解析出动作，模型原始响应：', result.raw);
+        } else {
+          aiEmptyCount = 0;
+        }
       }
     } catch (err) {
       aiFailCount++;
@@ -390,6 +419,7 @@
     els.aiDelay.value = ai.settings.moveDelay;
     els.aiDelayVal.textContent = ai.settings.moveDelay;
     els.aiBatch.checked = ai.settings.batchSize !== 1;
+    els.aiEngine.value = ai.settings.engine || 'algorithm';
     els.aiMsg.textContent = '';
     els.aiMsg.className = 'ai-msg';
     els.aiModal.classList.remove('hidden');
@@ -407,6 +437,7 @@
     ai.settings.moveDelay = parseInt(els.aiDelay.value, 10) || 60;
     els.aiDelayVal.textContent = ai.settings.moveDelay;
     ai.settings.batchSize = els.aiBatch.checked ? 3 : 1;
+    ai.settings.engine = els.aiEngine.value === 'llm' ? 'llm' : 'algorithm';
   }
 
   els.btnAiSettings.addEventListener('click', openAIModal);
@@ -448,10 +479,10 @@
   });
 
   els.btnAi.addEventListener('click', () => {
-    if (!ai.configured) {
+    if (ai.settings.engine === 'llm' && !ai.configured) {
       aiPendingStart = true; // 记录开启意图：保存配置后自动进入托管
       openAIModal();
-      setAIStatus('请先在设置中配置 API，保存后自动开启', 'warn');
+      setAIStatus('请先配置大模型 API（或在 AI 设置切换为“内置算法”）', 'warn');
       return;
     }
     aiMode = !aiMode;

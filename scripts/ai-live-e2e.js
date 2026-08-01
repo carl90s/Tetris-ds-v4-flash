@@ -31,11 +31,13 @@ const EDGE = [
   // 填入真实配置
   await page.$eval('#ai-baseurl', el => { el.value = 'https://api.deepseek.com'; el.dispatchEvent(new Event('input')); });
   await page.$eval('#ai-apikey', (el, k) => { el.value = k; el.dispatchEvent(new Event('input')); }, KEY);
-  await page.$eval('#ai-model', el => { el.value = 'deepseek-v4-flash'; el.dispatchEvent(new Event('input')); });
+  await page.$eval('#ai-model', el => { el.value = 'deepseek-v4-pro'; el.dispatchEvent(new Event('input')); });
+    // 取消批量决策（单回合：模型每步看到真实棋盘重新决策）
+  await page.$eval('#ai-batch', el => { el.checked = false; el.dispatchEvent(new Event('change')); });
   await page.$eval('#ai-save', el => el.click()); // 保存并自动开启托管
 
-  console.log('=== 真实 API AI 托管观察（15 秒） ===');
-  for (let i = 0; i < 15; i++) {
+  console.log('=== 真实 API AI 托管观察（30 秒） ===');
+  for (let i = 0; i < 30; i++) {
     await new Promise(r => setTimeout(r, 1000));
     const s = await page.evaluate(() => ({
       score: Number(document.getElementById('stat-score').textContent),
