@@ -264,3 +264,97 @@ body {
 @media (hover: hover) and (min-width: 721px) {
   .touch-controls { display: none; }
 }
+
+/* ============ AI 托管面板 ============ */
+.ai-row { display: flex; gap: 8px; margin-bottom: 8px; }
+
+.ai-toggle {
+  flex: 1;
+  padding: 10px 0;
+  font-size: 14px;
+  font-weight: 700;
+  border-radius: 10px;
+  border: 1px solid var(--panel-border);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ai-toggle.off { background: #1f2438; color: var(--muted); }
+.ai-toggle.on {
+  background: linear-gradient(90deg, #00c853, #00e676);
+  color: #06220f;
+  box-shadow: 0 0 14px rgba(0, 230, 118, 0.45);
+}
+.ai-toggle:active { transform: scale(0.96); }
+
+.ai-status { font-size: 12px; color: var(--muted); min-height: 16px; line-height: 1.5; }
+.ai-status.warn { color: #ffb74d; }
+.ai-status.err { color: #ff6e6e; }
+.ai-status.ok { color: #69f0ae; }
+
+/* ============ 设置弹窗 ============ */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 10, 18, 0.7);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 16px;
+}
+
+.modal.hidden { display: none; }
+
+.modal-box {
+  width: 100%;
+  max-width: 340px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-box h3 {
+  font-size: 17px;
+  text-align: center;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field label { font-size: 12px; color: var(--muted); }
+
+.field input, .field select {
+  width: 100%;
+  padding: 9px 10px;
+  font-size: 14px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+  background: #0d1020;
+  color: var(--text);
+  outline: none;
+}
+
+.field input:focus, .field select:focus { border-color: var(--accent); }
+.field input[type="range"] { padding: 0; accent-color: var(--accent); }
+
+.ai-msg { font-size: 12px; min-height: 16px; line-height: 1.5; }
+.ai-msg.ok { color: #69f0ae; }
+.ai-msg.err { color: #ff6e6e; }
+
+.modal-actions { display: flex; gap: 8px; align-items: center; }
+.modal-actions .spacer { flex: 1; }
+
+.primary-btn.small { padding: 9px 20px; font-size: 14px; border-radius: 9px; }
+
+@media (max-width: 720px) {
+  .ai-panel { flex: 1 1 100%; }
+}

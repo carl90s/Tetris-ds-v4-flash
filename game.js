@@ -247,8 +247,8 @@
       this.ghostY = y;
     }
 
-    /** 主循环推进（dt 毫秒） */
-    tick(dt) {
+    /** 主循环推进（dt 毫秒；noGravity 时暂停自动下落，用于 AI 托管） */
+    tick(dt, noGravity = false) {
       if (this.status === 'clearing') {
         this.clearingTimer += dt;
         if (this.clearingTimer >= 320) this.clearRows();
@@ -261,13 +261,15 @@
         if (this.lastClear.time > 1000) this.lastClear = null;
       }
 
-      this.fallAccum += dt;
-      while (this.fallAccum >= this.dropInterval) {
-        this.fallAccum -= this.dropInterval;
-        if (!this.tryMove(0, 1)) {
-          this.lock();
-          this.fallAccum = 0;
-          break;
+      if (!noGravity) {
+        this.fallAccum += dt;
+        while (this.fallAccum >= this.dropInterval) {
+          this.fallAccum -= this.dropInterval;
+          if (!this.tryMove(0, 1)) {
+            this.lock();
+            this.fallAccum = 0;
+            break;
+          }
         }
       }
     }

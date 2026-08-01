@@ -30,8 +30,29 @@
     btnStart: $('btn-start'),
     btnPause: $('btn-pause'),
     btnRestart: $('btn-restart'),
-    btnSound: $('btn-sound')
+    btnSound: $('btn-sound'),
+    btnAi: $('btn-ai'),
+    btnAiSettings: $('btn-ai-settings'),
+    aiStatus: $('ai-status'),
+    aiModal: $('ai-modal'),
+    aiProvider: $('ai-provider'),
+    aiBaseUrl: $('ai-baseurl'),
+    aiApiKey: $('ai-apikey'),
+    aiModel: $('ai-model'),
+    aiDelay: $('ai-delay'),
+    aiDelayVal: $('ai-delay-val'),
+    aiMsg: $('ai-msg'),
+    aiTest: $('ai-test'),
+    aiSave: $('ai-save'),
+    aiCancel: $('ai-cancel')
   };
+
+  /* ---------- AI 托管状态 ---------- */
+  const ai = new TetrisAI.AIController();
+  let aiMode = false;
+  let aiBusy = false;
+  let aiFailCount = 0;
+  let aiLastComment = '';
 
   const BEST_KEY = 'tetris-highscore';
   const SOUND_KEY = 'tetris-sound';
@@ -280,12 +301,131 @@
     else hideOverlay();
   }
 
+  /* ---------- AI 托管逻辑 ---------- */
+  function setAIStatus(text, cls) {
+    els.aiStatus.textContent = text;
+    els.aiStatus.className = 'ai-status' + (cls ? ' ' + cls : '');
+  }
+
+  function updateAIUI() {
+    els.btnAi.textContent = aiMode ? '🤖 托管中 · 点击停用' : '开启 AI 托管';
+    els.btnAi.classList.toggle('on', aiMode);
+    els.btnAi.classList.toggle('off', !aiMode);
+    if (!ai.configured) { setAIStatus('未配置 AI · 点击“AI 设置”填写', 'warn'); return; }
+    if (!aiMode) { setAIStatus('已配置 · 点击开启托管', 'ok'); return; }
+    if (aiBusy) { setAIStatus('AI 思考中…', 'ok'); return; }
+    if (aiLastComment) { setAIStatus('AI：' + aiLastComment, 'ok'); return; }
+    setAIStatus('AI 托管中', 'ok');
+  }
+
+  /** AI 回合：决策 → 逐动作放置 → 锁定；每块一次调用 */
+  async function launchAITurn() {
+    const t0 = Date.now();
+    aiBusy = true;
+    updateAIUI();
+    try {
+      const result = await ai.playTurn(game);
+      aiFailCount = 0;
+      aiLastComment = result.comment || '';
+    } catch (err) {
+      aiFailCount++;
+      aiLastComment = '';
+      setAIStatus('AI 决策失败：' + (err && err.message ? err.message : err), 'err');
+      if (aiFailCount >= 2) {
+        aiMode = false; // 连续失败自动停用，避免无脑堆叠
+        setAIStatus('AI 连续失败已停用，请检查设置', 'warn');
+      } else if (game.status === 'playing' && game.current) {
+        game.hardDrop(); // 兜底：落底当前方块
+      }
+    } finally {
+      // 最小回合间隔：保证“AI 思考中”可见、节奏可跟（快速模型也不会瞬移堆叠）
+      const el = Date.now() - t0;
+      if (el < 250) await sleep(250 - el);
+      aiBusy = false;
+      updateAIUI();
+    }
+  }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  /* ---------- AI 设置弹窗 ---------- */
+  function openAIModal() {
+    const p = TetrisAI.PROVIDERS;
+    els.aiProvider.value = ai.settings.provider in p ? ai.settings.provider : 'custom';
+    els.aiBaseUrl.value = ai.settings.baseUrl || '';
+    els.aiApiKey.value = ai.settings.apiKey || '';
+    els.aiModel.value = ai.settings.model || '';
+    els.aiDelay.value = ai.settings.moveDelay;
+    els.aiDelayVal.textContent = ai.settings.moveDelay;
+    els.aiMsg.textContent = '';
+    els.aiMsg.className = 'ai-msg';
+    els.aiModal.classList.remove('hidden');
+  }
+
+  function closeAIModal() {
+    els.aiModal.classList.add('hidden');
+  }
+
+  function applyModalToSettings() {
+    ai.settings.provider = els.aiProvider.value;
+    ai.settings.baseUrl = els.aiBaseUrl.value.trim();
+    ai.settings.apiKey = els.aiApiKey.value.trim();
+    ai.settings.model = els.aiModel.value.trim();
+    ai.settings.moveDelay = parseInt(els.aiDelay.value, 10) || 60;
+    els.aiDelayVal.textContent = ai.settings.moveDelay;
+  }
+
+  els.btnAiSettings.addEventListener('click', openAIModal);
+  els.aiCancel.addEventListener('click', closeAIModal);
+  els.aiModal.addEventListener('click', (e) => { if (e.target === els.aiModal) closeAIModal(); });
+  els.aiProvider.addEventListener('change', () => {
+    const p = TetrisAI.PROVIDERS[els.aiProvider.value];
+    if (p && els.aiProvider.value !== 'custom') {
+      els.aiBaseUrl.value = p.baseUrl;
+      els.aiModel.value = p.model;
+    }
+  });
+  els.aiDelay.addEventListener('input', () => { els.aiDelayVal.textContent = els.aiDelay.value; });
+
+  els.aiTest.addEventListener('click', async () => {
+    applyModalToSettings();
+    els.aiMsg.textContent = '测试中…';
+    els.aiMsg.className = 'ai-msg';
+    const r = await ai.testConnection();
+    els.aiMsg.textContent = r.message;
+    els.aiMsg.className = 'ai-msg ' + (r.ok ? 'ok' : 'err');
+  });
+
+  els.aiSave.addEventListener('click', () => {
+    applyModalToSettings();
+    TetrisAI.saveSettings(ai.settings);
+    closeAIModal();
+    updateAIUI();
+  });
+
+  els.btnAi.addEventListener('click', () => {
+    if (!ai.configured) {
+      openAIModal();
+      setAIStatus('请先在设置中配置 API', 'warn');
+      return;
+    }
+    aiMode = !aiMode;
+    aiFailCount = 0;
+    aiLastComment = '';
+    if (aiMode) {
+      ensureAudio();
+      if (game.status === 'ready' || game.status === 'over') { startOrRestart(); }
+      else if (game.status === 'paused') { doAction('pause'); }
+    }
+    updateAIUI();
+  });
   /* ---------- 动作（统一入口，带音效） ---------- */
   function doAction(action) {
     if (action === 'pause') {
       if (game.togglePause()) refreshUI();
       return;
     }
+    if (aiMode) return; // AI 托管时屏蔽玩家移动/旋转/降块
     if (!game.interactive) return;
     switch (action) {
       case 'left': if (game.tryMove(-1, 0)) sfx.move(); break;
@@ -319,6 +459,7 @@
     }
     if (code === 'KeyM') { toggleSound(); return; }
     if (code === 'KeyR') { startOrRestart(); return; }
+    if (code === 'Escape' && !els.aiModal.classList.contains('hidden')) { closeAIModal(); return; }
     if (code === 'KeyP' || code === 'Escape') { doAction('pause'); return; }
 
     if (!game.interactive) return;
@@ -380,7 +521,7 @@
   function loop(now) {
     const dt = Math.min(now - last, 100);
     last = now;
-    game.tick(dt);
+    game.tick(dt, aiMode);
     renderBoard();
     renderNext();
     // 状态变化时刷新覆盖层/HUD（每帧轻量检查）
@@ -393,9 +534,11 @@
     } else {
       updateHUD();
     }
+    if (aiMode && !aiBusy && game.status === 'playing') launchAITurn();
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
 
   refreshUI();
+  updateAIUI();
 })();

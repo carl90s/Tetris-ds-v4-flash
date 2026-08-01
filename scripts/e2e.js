@@ -78,6 +78,77 @@ const EDGE = [
   await mpage.tap('.touch-btn[data-action="rotate"]');
   await new Promise(r => setTimeout(r, 200));
 
+  // ---- AI 托管流程（拦截 /chat/completions，mock 模型响应） ----
+  const apage = await browser.newPage();
+  apage.on('pageerror', e => errors.push('[ai pageerror] ' + e.message));
+  await apage.setRequestInterception(true);
+  let aiCalls = 0;
+  const CORS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'authorization, content-type'
+  };
+  apage.on('request', req => {
+    if (req.url().includes('/chat/completions')) {
+      aiCalls++;
+      if (req.method() === 'OPTIONS') {
+        req.respond({ status: 204, headers: CORS });
+      } else {
+        req.respond({
+          status: 200,
+          contentType: 'application/json',
+          headers: CORS,
+          body: JSON.stringify({ choices: [{ message: { content: '{"moves":["hard"],"comment":"e2e 放置"}' } }] })
+        });
+      }
+    } else {
+      req.continue();
+    }
+  });
+  await apage.goto('http://localhost:8901/index.html', { waitUntil: 'networkidle0' });
+  await new Promise(r => setTimeout(r, 400));
+
+  // 打开设置弹窗并保存配置（假 key，请求会被拦截）
+  await apage.click('#btn-ai-settings');
+  await new Promise(r => setTimeout(r, 200));
+  out.aiModalShown = await apage.$eval('#ai-modal', el => !el.classList.contains('hidden'));
+  await apage.type('#ai-baseurl', 'https://api.mock.local/v1');
+  await apage.type('#ai-apikey', 'sk-e2e-mock');
+  await apage.type('#ai-model', 'mock-model');
+  // 放慢动作间隔，配合最小回合间隔，避免 mock 零延迟导致快速堆满
+  await apage.evaluate(() => {
+    const d = document.getElementById('ai-delay');
+    d.value = 200;
+    d.dispatchEvent(new Event('input'));
+  });
+  await apage.click('#ai-save');
+  await new Promise(r => setTimeout(r, 200));
+  out.aiModalClosed = await apage.$eval('#ai-modal', el => el.classList.contains('hidden'));
+
+  // 开启 AI 托管（ready 状态自动开始游戏并触发决策）
+  await apage.click('#btn-ai');
+  // 等 AI 放置约 3 个方块后立即停用（mock 为无脑 hard，长时间运行会堆满棋盘）
+  const aiDeadline = Date.now() + 5000;
+  while (Date.now() < aiDeadline) {
+    await new Promise(r => setTimeout(r, 150));
+    const sc = await apage.$eval('#stat-score', el => Number(el.textContent));
+    if (sc >= 50) break;
+  }
+  out.aiModeOn = await apage.$eval('#btn-ai', el => el.classList.contains('on'));
+  out.aiScore = await apage.$eval('#stat-score', el => Number(el.textContent));
+  out.aiStatusText = await apage.$eval('#ai-status', el => el.textContent);
+  out.aiCalls = aiCalls;
+  out.aiPlacementWorks = out.aiScore > 0;
+
+  // 停用 AI：玩家键盘恢复
+  await apage.click('#btn-ai');
+  await new Promise(r => setTimeout(r, 200));
+  out.aiModeOff = await apage.$eval('#btn-ai', el => el.classList.contains('on') === false);
+  await apage.keyboard.press('ArrowRight'); // 停用后键盘应恢复控制
+  await apage.keyboard.press('Space');
+  await new Promise(r => setTimeout(r, 300));
+  out.aiScoreAfterManual = await apage.$eval('#stat-score', el => Number(el.textContent));
+  out.manualAfterAIWorks = out.aiScoreAfterManual > out.aiScore;
   await page.screenshot({ path: path.join(__dirname, '..', 'shot-e2e.png') });
   out.errors = errors;
   console.log(JSON.stringify(out, null, 2));
@@ -90,6 +161,12 @@ const EDGE = [
     || out.touchButtonsDesktopVisible
     || !out.touchControlsVisible
     || out.touchButtonsMobile < 6
-    || out.scoreAfterTouchHard <= 0;
+    || out.scoreAfterTouchHard <= 0
+    || !out.aiModalShown
+    || !out.aiModalClosed
+    || !out.aiModeOn
+    || !out.aiPlacementWorks
+    || !out.aiModeOff
+    || !out.manualAfterAIWorks;
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error('E2E FAILED:', e); process.exit(1); });
