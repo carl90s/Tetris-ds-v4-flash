@@ -235,8 +235,8 @@
   /* ============ 强化学习代理（REINFORCE with baseline） ============ */
 
   const RL_STORAGE_KEY = 'tetris-rl-state';
-  /** 初始权重 = 启发式默认（保证冷启动不弱于启发式）；洞/最高列惩罚加大；wellSum 惩罚调低（攒井代价小，鼓励竖放 I 消四连）；后 4 项为非线性特征 */
-  const RL_DEFAULT_W = [760, 1.5, 8, 50, 2, 18, 6, 2, 1.0, 0.5];
+  /** 初始权重 = 启发式默认（保证冷启动不弱于启发式）；洞/最高列惩罚加大；后 4 项为非线性特征 */
+  const RL_DEFAULT_W = [760, 1.5, 8, 50, 2, 18, 10, 2, 1.0, 0.5];
 
   /** 消行奖励表（rewardOf 用）：单次 1/2/3/4 行 = 50/200/500/1000 */
   const CLEAR_BONUS = [0, 50, 200, 500, 1000];
@@ -450,9 +450,9 @@
       this.w[3] = Math.min(200, Math.max(25, this.w[3]));
       this.w[4] = Math.min(40, Math.max(1.0, this.w[4]));
       this.w[5] = Math.min(200, Math.max(10, this.w[5]));
-      this.w[6] = Math.min(100, Math.max(2, this.w[6]));     // wellSum（惩罚调低，鼓励攒井）
+      this.w[6] = Math.min(100, Math.max(4, this.w[6]));     // wellSum（适度回调，避免无脑挖井堆高）
       this.w[7] = Math.min(30, Math.max(0.5, this.w[7]));    // landing
-      this.w[8] = Math.min(40, Math.max(0.3, this.w[8]));    // maxH²
+      this.w[8] = Math.min(40, Math.max(1.0, this.w[8]));    // maxH²（下限 1.0，冒尖惩罚保底）
       this.w[9] = Math.min(25, Math.max(0.1, this.w[9]));    // aggH²
     }
 
@@ -496,12 +496,14 @@
       if (!human) return; // 人类落点不在枚举内（异常情况忽略）
       const qH = this.q(human.phi);
       const margin = 1.0;
+      // 人类投喂降权（α×0.5）：人类操作含噪声，避免坏习惯被强化学到 AI
+      const imitateAlpha = this.alpha * 0.5;
       let updated = false;
       for (const c of cands) {
         if (c === human) continue;
         const diff = qH - this.q(c.phi);
         if (diff < margin) {
-          const f = this.alpha * (margin - diff);
+          const f = imitateAlpha * (margin - diff);
           this.w[0] += f * (clearFactor(human.phi.full) - clearFactor(c.phi.full));
           this.w[1] += f * (-(human.phi.aggH - c.phi.aggH));
           this.w[2] += f * (-(human.phi.maxH - c.phi.maxH));
