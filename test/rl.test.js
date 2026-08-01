@@ -189,3 +189,22 @@ test('RLAgent：10 维权重含非线性特征且作为惩罚生效', () => {
   const r = rl.rewardOf({ full: 0, aggH: 0, holes: 0, maxH: 4, bump: 0, rowTrans: 0 });
   assert.equal(r, -20, 'maxH 即时惩罚应为 -5/格（实际 ' + r + '）');
 });
+test('enumeratePlacements：竖 I 可落最左列（边缘列候选存在）', () => {
+  const g = playingGame();
+  // 16~19 行除列 0 外全满（井在最左列），竖 I 放列 0 可消 4 行
+  for (let r = 16; r <= 19; r++) {
+    g.board[r] = Array(COLS).fill('#x').map((v, c) => (c === 0 ? 0 : v));
+  }
+  g.current = { type: 'I', matrix: SHAPES.I.matrix.map(r => r.slice()), color: SHAPES.I.color, x: 3, y: 0 };
+  g.updateGhost();
+  const cands = AI.enumeratePlacements(g);
+  // 竖 I 非零列 index 2 → 占列 0 需要 col=-2
+  const edge = cands.find(c => c.col === -2);
+  assert.ok(edge, '应有竖 I 落最左列（col=-2）的候选');
+  assert.equal(edge.phi.full, 4, '该候选应消 4 行（实际 ' + (edge ? edge.phi.full : '无') + '）');
+  // RL 决策应选边缘竖放消四连
+  const rl = new RLAgent();
+  const plan = rl.decide(g);
+  const chosen = cands.find(c => c.rot === plan.rot && c.col === plan.col);
+  assert.equal(chosen.phi.full, 4, 'RL 应选择边缘竖放消 4 行（实际 ' + chosen.phi.full + '）');
+});

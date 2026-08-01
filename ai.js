@@ -125,7 +125,17 @@
       ? (SHAPES[previews[0]] || null) : null;
     const nextM0 = nextShape ? nextShape.matrix.map(r => r.slice()) : null;
     for (let rot = 0; rot < 4; rot++) {
-      for (let col = 0; col < COLS; col++) {
+      // 非零列范围：允许负 col（边缘列也可放置，如竖 I 落最左列）
+      let minC = m[0].length, maxC = -1;
+      for (let r = 0; r < m.length; r++) {
+        for (let c = 0; c < m[r].length; c++) {
+          if (m[r][c]) {
+            if (c < minC) minC = c;
+            if (c > maxC) maxC = c;
+          }
+        }
+      }
+      for (let col = -minC; col < COLS - maxC; col++) {
         const y = dropYOn(board, m, col);
         if (y === null) continue;
         const placed = placeOnBoard(board, m, col, y);
@@ -178,7 +188,17 @@
       for (let r = 0; r < m.length; r++) {
         if (m[r].some(v => v)) maxRow = r;
       }
-      for (let col = 0; col < COLS; col++) {
+      // 非零列范围：允许负 col（矩阵全零列越界不碰撞，边缘列也可放置，如竖 I 落最左列）
+      let minC = m[0].length, maxC = -1;
+      for (let r = 0; r < m.length; r++) {
+        for (let c = 0; c < m[r].length; c++) {
+          if (m[r][c]) {
+            if (c < minC) minC = c;
+            if (c > maxC) maxC = c;
+          }
+        }
+      }
+      for (let col = -minC; col < COLS - maxC; col++) {
         const y = dropYOn(board, m, col);
         if (y === null) continue;
         const placed = placeOnBoard(board, m, col, y);
