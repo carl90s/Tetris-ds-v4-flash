@@ -466,6 +466,7 @@
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
   /* ============ 内置算法引擎（确定性启发式，真会消行） ============ */
+  /* ============ 内置算法引擎（确定性启发式，真会消行） ============ */
   function collidesAt(board, m, col, y) {
     const COLS = board[0].length, ROWS = board.length;
     for (let r = 0; r < m.length; r++) {
@@ -479,36 +480,36 @@
     return false;
   }
 
-  /** 模拟方块在 (col) 处的下落高度（返回 y，放不下返回 null） */
-  function dropY(game, m, col) {
-    const ROWS = game.constructor.ROWS;
+  /** 模拟方块在棋盘 (board) 的 (col) 处下落高度（放不下返回 null） */
+  function dropYOn(board, m, col) {
+    const ROWS = board.length;
     let y = 0;
-    if (collidesAt(game.board, m, col, y)) return null;
-    while (!collidesAt(game.board, m, col, y + 1)) {
+    if (collidesAt(board, m, col, y)) return null;
+    while (!collidesAt(board, m, col, y + 1)) {
       y++;
       if (y > ROWS) return null;
     }
     return y;
   }
 
-  /** 放置并评估：消行数 / 高度 / 洞 / 凸度 */
-  function placeAndEval(game, m, col, y) {
-    const COLS = game.constructor.COLS, ROWS = game.constructor.ROWS;
-    const board = game.board.map(row => row.slice());
+  /** 放置方块到棋盘副本，移除满行；返回新棋盘（未补齐顶部） */
+  function placeOnBoard(board, m, col, y) {
+    const next = board.map(row => row.slice());
     for (let r = 0; r < m.length; r++) {
       for (let c = 0; c < m[r].length; c++) {
-        if (m[r][c]) board[y + r][col + c] = m[r][c];
+        if (m[r][c]) next[y + r][col + c] = m[r][c];
       }
     }
-    let full = 0;
-    for (let r = 0; r < ROWS; r++) {
-      if (board[r].every(v => v)) full++;
-    }
+    return next.filter(row => !row.every(v => v));
+  }
+
+  /** 评估棋盘（需为完整 ROWS 行）：高度 / 最高列 / 洞 / 凸度 / 行过渡 */
+  function evalBoard(board) {
+    const COLS = board[0].length, ROWS = board.length;
     const hs = [];
-    let holes = 0, aggH = 0;
+    let holes = 0, aggH = 0, maxH = 0;
     for (let c = 0; c < COLS; c++) {
       let h = 0, seen = false, colHoles = 0;
-      // 洞：从顶部往下，遇到第一个方块后，剩余空格（被方块盖住、无法从上方填满）
       for (let r = 0; r < ROWS; r++) {
         if (board[r][c]) {
           if (!seen) { seen = true; h = ROWS - r; }
@@ -518,37 +519,83 @@
       }
       hs.push(h);
       aggH += h;
+      if (h > maxH) maxH = h;
       holes += colHoles;
     }
     let bump = 0;
     for (let c = 1; c < COLS; c++) bump += Math.abs(hs[c] - hs[c - 1]);
-    return { full, aggH, holes, bump };
+    let rowTrans = 0;
+    for (let r = 0; r < ROWS; r++) {
+      let prev = true;
+      for (let c = 0; c < COLS; c++) {
+        const v = !!board[r][c];
+        if (v !== prev) rowTrans++;
+        prev = v;
+      }
+      if (prev !== true) rowTrans++;
+    }
+    return { full: 0, aggH, maxH, holes, bump, rowTrans };
   }
 
-  /**
-   * 内置算法：枚举 4 个旋转 × 所有列，按启发式评分选最优落点。
-   * @returns {{rot:number, col:number, score:number}|null}
-   */
-  function planBestPlacement(game) {
-    if (!game.current) return null;
-    const COLS = game.constructor.COLS;
-    const rotateMatrix = game.constructor.rotateMatrix;
-    let m = game.current.matrix.map(r => r.slice());
+  /** 合并权重（Dellacherie 风格默认值） */
+  function defaultWeights(w) {
+    return {
+      full: w.full !== undefined ? w.full : 760,
+      aggH: w.aggH !== undefined ? w.aggH : 1.5,
+      maxH: w.maxH !== undefined ? w.maxH : 4,
+      holes: w.holes !== undefined ? w.holes : 35,
+      bump: w.bump !== undefined ? w.bump : 2,
+      rowTrans: w.rowTrans !== undefined ? w.rowTrans : 18
+    };
+  }
+
+  function scoreEval(s, W) {
+    return s.full * W.full - s.aggH * W.aggH - s.maxH * W.maxH - s.holes * W.holes - s.bump * W.bump - s.rowTrans * W.rowTrans;
+  }
+
+  /** 对给定棋盘枚举方块全部落点，返回最优（depth>1 时递归前瞻后续方块） */
+  function bestOnBoard(board, m0, W, rotateMatrix, COLS, ROWS, previews, depth, SHAPES) {
+    let m = m0;
     let best = null, bestScore = -Infinity;
+    const nextShape = depth > 1 && previews && previews.length && SHAPES
+      ? (SHAPES[previews[0]] || null) : null;
+    const nextM0 = nextShape ? nextShape.matrix.map(r => r.slice()) : null;
     for (let rot = 0; rot < 4; rot++) {
       for (let col = 0; col < COLS; col++) {
-        const y = dropY(game, m, col);
+        const y = dropYOn(board, m, col);
         if (y === null) continue;
-        const s = placeAndEval(game, m, col, y);
-        const score = s.full * 1000 - s.aggH * 3 - s.holes * 60 - s.bump * 4;
-        if (score > bestScore) {
-          bestScore = score;
-          best = { rot, col, score };
+        const placed = placeOnBoard(board, m, col, y);
+        const cleared = ROWS - placed.length;
+        while (placed.length < ROWS) placed.unshift(Array(COLS).fill(0));
+        const s = evalBoard(placed);
+        s.full = cleared;
+        let sc = scoreEval(s, W);
+        if (nextM0) {
+          const nBest = bestOnBoard(placed, nextM0, W, rotateMatrix, COLS, ROWS, previews.slice(1), depth - 1, SHAPES);
+          sc = sc * 0.5 + (nBest ? nBest.score : 0) * 0.5;
         }
+        if (sc > bestScore) { bestScore = sc; best = { rot, col, score: sc }; }
       }
       m = rotateMatrix(m);
     }
     return best;
+  }
+
+  /**
+   * 内置算法（默认 1 步前瞻）：同时考虑下一个方块，避免堵死自己。
+   * @param {Object} w 可调权重 / { lookahead: false|number } 前瞻深度
+   * @returns {{rot:number, col:number, score:number}|null}
+   */
+  function planBestPlacement(game, w = {}) {
+    if (!game.current) return null;
+    const COLS = game.constructor.COLS, ROWS = game.constructor.ROWS;
+    const rotateMatrix = game.constructor.rotateMatrix;
+    const SHAPES = game.constructor.SHAPES || {};
+    const W = defaultWeights(w);
+    const depth = w.lookahead === false || w.lookahead === 0 ? 1 : (typeof w.lookahead === 'number' ? w.lookahead : 2);
+
+    const previews = game.preview();
+    return bestOnBoard(game.board, game.current.matrix.map(r => r.slice()), W, rotateMatrix, COLS, ROWS, previews, depth, SHAPES);
   }
 
   return { AIController, PROVIDERS, loadSettings, saveSettings, parseResponse, serializeBoard, columnHeights, buildSystemPrompt, buildUserPrompt, planBestPlacement };
