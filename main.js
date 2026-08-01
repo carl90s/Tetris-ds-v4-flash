@@ -34,6 +34,7 @@
     btnAi: $('btn-ai'),
     aiEngine: $('ai-engine'),
     aiLearnHuman: $('ai-learn-human'),
+    aiAuto: $('ai-auto'),
     aiStatus: $('ai-status')
   };
 
@@ -45,6 +46,8 @@
   let aiEngine = 'heuristic'; // heuristic | rl
   const rlAgent = new TetrisAI.RLAgent();
   let learnHuman = true; // 人玩时投喂 RL（模仿学习）
+  let rlLeft = 0;                        // 自动训练剩余局数
+  let rlAutoEpisodes = parseInt(lsGet('tetris-rl-auto') || '10', 10) || 0; // 自动训练局数（默认 10，0=关闭）
 
   const BEST_KEY = 'tetris-highscore';
   const SOUND_KEY = 'tetris-sound';
@@ -291,7 +294,17 @@
     else if (game.status === 'paused') showOverlay('paused');
     else if (game.status === 'over') {
       saveBest(); updateHUD(); showOverlay('over');
-      if (aiEngine === 'rl') rlAgent.endEpisode(true); // 强化学习：吸收本局经验
+      if (aiEngine === 'rl') {
+        rlAgent.endEpisode(true); // 强化学习：吸收本局经验
+        // 自动训练：达到设定局数后停止自动重开
+        if (rlLeft > 0) {
+          rlLeft--;
+          updateAIUI();
+          setTimeout(() => {
+            if (aiMode && aiEngine === 'rl' && game.status === 'over') startOrRestart();
+          }, 400);
+        }
+      }
     }
     else hideOverlay();
   }
@@ -316,6 +329,10 @@
     if (aiBusy) { setAIStatus('AI 计算中…', 'ok'); return; }
     if (aiLastComment) {
       setAIStatus('AI：' + aiLastComment + (aiLastMoves ? ' ' + aiLastMoves : ''), 'ok');
+      return;
+    }
+    if (aiEngine === 'rl' && rlLeft > 0) {
+      setAIStatus('自动训练中 · 剩余 ' + rlLeft + ' 局', 'ok');
       return;
     }
     setAIStatus(aiEngine === 'rl' ? '强化学习托管中（已学 ' + rlAgent.episodes + ' 局）' : 'AI 托管中', 'ok');
@@ -386,7 +403,10 @@
     aiLastMoves = '';
     if (aiMode) {
       ensureAudio();
-      if (aiEngine === 'rl') rlAgent.resetEpisode(); // 新一局，清空 RL 回合记录
+      if (aiEngine === 'rl') {
+        rlAgent.resetEpisode(); // 新一局，清空 RL 回合记录
+        rlLeft = rlAutoEpisodes; // 重置自动训练局数
+      }
       if (game.status === 'ready' || game.status === 'over') { startOrRestart(); }
       else if (game.status === 'paused') { doAction('pause'); }
     }
@@ -402,6 +422,14 @@
     learnHuman = els.aiLearnHuman.checked;
     updateAIUI();
   });
+
+  els.aiAuto.addEventListener('change', () => {
+    rlAutoEpisodes = parseInt(els.aiAuto.value, 10) || 0;
+    rlAutoEpisodes = Math.max(0, Math.min(100, rlAutoEpisodes));
+    els.aiAuto.value = rlAutoEpisodes;
+    lsSet('tetris-rl-auto', String(rlAutoEpisodes));
+  });
+  els.aiAuto.value = rlAutoEpisodes;
 
   // 人玩时投喂 RL：方块锁定瞬间（AI 未托管）模仿人类落点
   game.onBeforeLock = (g) => {
