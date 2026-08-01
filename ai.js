@@ -293,6 +293,35 @@
     }
 
     /**
+     * 未来价值：评估放置后棋盘上，接下来 steps 个方块的最优落点价值（折扣叠加）。
+     * 用 γ·Q₁ + γ²·Q₂ + γ³·Q₃ … 把多步未来价值都纳入 TD 目标。
+     */
+    futureValue(game, steps = 3) {
+      const SHAPES = game.constructor.SHAPES || {};
+      const rotateMatrix = game.constructor.rotateMatrix;
+      const COLS = game.constructor.COLS, ROWS = game.constructor.ROWS;
+      const previews = game.preview();
+      let board = game.board;
+      let total = 0, g = this.gamma;
+      for (let i = 0; i < steps; i++) {
+        const type = previews[i];
+        const shape = type ? SHAPES[type] : null;
+        if (!shape) break;
+        const cands = enumerateOnBoard(board, shape.matrix.map(r => r.slice()), COLS, ROWS, rotateMatrix);
+        if (!cands.length) break;
+        let bestQ = -Infinity, bestCand = null;
+        for (const c of cands) {
+          const q = this.q(c.phi);
+          if (q > bestQ) { bestQ = q; bestCand = c; }
+        }
+        total += g * bestQ;
+        g *= this.gamma;
+        board = bestCand ? bestCand.boardAfter : board;
+      }
+      return total;
+    }
+
+    /**
      * TD(0) 步级学习：放置完成后调用。
      * @param {Object} phi 本步所选落点的特征（放置后棋盘）
      * @param {Object} game 当前游戏（已放置并生成新方块）
@@ -301,15 +330,10 @@
       // 即时奖励：消行递增收益 - 堆高/洞的即时代价（防止 TD 只认消行、奖励黑客）
       const reward = this.rewardOf(phi);
       this.episodeReward += reward;
-      // 下一状态价值：新棋盘上下一方块（当前方块）的最优 Q
-      const nCands = enumeratePlacements(game);
-      let maxQ = 0;
-      for (const c of nCands) {
-        const q = this.q(c.phi);
-        if (q > maxQ) maxQ = q;
-      }
+      // 未来价值：接下来 3 个方块的最优落点价值（折扣叠加，把未来价值都放上去）
+      const future = this.futureValue(game, 3);
       const qPrev = this.q(phi);
-      const delta = reward + this.gamma * maxQ - qPrev;
+      const delta = reward + future - qPrev;
       this.w[0] += this.alpha * delta * phi.full;
       this.w[1] += this.alpha * delta * (-phi.aggH);
       this.w[2] += this.alpha * delta * (-phi.maxH);

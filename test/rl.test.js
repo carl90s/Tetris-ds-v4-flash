@@ -105,3 +105,25 @@ test('RLAgent：rewardOf 消行递增奖励（单次越多越值钱）', () => {
   // 即时代价仍生效
   assert.ok(rl.rewardOf({ ...base, full: 0, aggH: 10 }) < 0, '高堆仍受罚');
 });
+test('RLAgent：futureValue 未来 3 步价值叠加且有限', () => {
+  const rl = new RLAgent();
+  const g = playingGame();
+  const v0 = rl.futureValue(g, 0);
+  const v1 = rl.futureValue(g, 1);
+  const v3 = rl.futureValue(g, 3);
+  assert.equal(v0, 0, '0 步无未来价值');
+  assert.ok(Number.isFinite(v1) && Number.isFinite(v3));
+  // 空棋盘上未来价值是堆叠惩罚（负值），步数越多叠加越多
+  assert.ok(v3 < 0, '空棋盘未来价值应为负（堆叠惩罚）');
+  assert.ok(v3 !== v1, '3 步应叠加更多未来价值（v3=' + v3 + ' vs v1=' + v1 + '）');
+});
+
+test('RLAgent：observe 使用 3 步未来价值后权重仍有限', () => {
+  const rl = new RLAgent();
+  const g = playingGame();
+  for (let i = 0; i < 10; i++) {
+    rl.observe({ full: 0, aggH: 8, maxH: 5, holes: 2, bump: 3, rowTrans: 15 }, g);
+  }
+  assert.ok(rl.w.every(v => Number.isFinite(v)), '权重应保持有限');
+  assert.ok(rl.steps.length === 10);
+});
