@@ -179,6 +179,10 @@
         } catch (e) { /* 忽略 */ }
       }
     }
+    // moves 可能是字符串形式：{"moves":"左移, 左移, 直落"}
+    if (obj && !Array.isArray(obj.moves) && typeof obj.moves === 'string') {
+      obj.moves = obj.moves.split(/[,，、;；\s]+/).filter(Boolean);
+    }
     if (!obj || !Array.isArray(obj.moves)) return { moves: [], comment: '' };
     const moves = [];
     for (const m of obj.moves) {
@@ -224,8 +228,10 @@
           { role: 'user', content: buildUserPrompt(game) }
         ],
         temperature: 0.2,
-        max_tokens: 300,
-        stream: false
+        max_tokens: 500,
+        stream: false,
+        // 强制模型输出合法 JSON（DeepSeek/OpenAI/通义等 OpenAI 兼容服务均支持；不支持的实现通常忽略该字段）
+        response_format: { type: 'json_object' }
       };
       const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
       const timer = ctrl ? setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS) : null;

@@ -342,9 +342,9 @@
         if (aiEmptyCount >= 3) {
           aiMode = false; // 模型始终不返回有效动作，停用避免无限堆叠
           aiPendingStart = false;
-          aiLastError = '模型连续 3 次未返回有效动作，已停用托管（请换用支持 JSON 输出的模型）';
+          aiLastError = '模型连续 3 次未返回有效动作，已停用托管。模型回复：' + (result.raw ? result.raw.slice(0, 60) : '(空)') + '…';
         } else {
-          aiLastError = '模型未返回有效动作（第 ' + aiEmptyCount + ' 次，已自动落底）';
+          aiLastError = '模型未返回有效动作（第 ' + aiEmptyCount + ' 次）' + (result.raw ? '，回复：' + result.raw.slice(0, 40) : '');
         }
         if (result.raw) console.warn('[AI] 未解析出动作，模型原始响应：', result.raw);
       } else {

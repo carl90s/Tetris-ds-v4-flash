@@ -49,7 +49,7 @@ test('parseResponse：非法输入返回空动作', () => {
   assert.deepEqual(parseResponse('{"comment":"只有说明"}').moves, []);
   assert.deepEqual(parseResponse(null).moves, []);
   assert.deepEqual(parseResponse('').moves, []);
-  assert.deepEqual(parseResponse('{"moves":"hard"}').moves, []);
+  assert.deepEqual(parseResponse('{"moves":"hard"}').moves, ['hard']);
 });
 
 test('parseResponse：过滤未知动作、转小写、截断上限', () => {
@@ -192,4 +192,22 @@ test('parseResponse：中文动作名归一化', () => {
   assert.deepEqual(parseResponse('{"moves":["向右","旋转","快速落下"]}').moves, ['right', 'rotate', 'hard']);
   assert.deepEqual(parseResponse('{"moves":["move left","drop"]}').moves, ['left', 'hard']);
   assert.deepEqual(parseResponse('{"moves":["左","硬降"]}').moves, ['left', 'hard']);
+});
+test('parseResponse：moves 为逗号分隔字符串', () => {
+  assert.deepEqual(parseResponse('{"moves":"左移, 左移, 直落","comment":"放左"}').moves, ['left', 'left', 'hard']);
+  assert.deepEqual(parseResponse('{"moves":"right right hard"}').moves, ['right', 'right', 'hard']);
+  assert.deepEqual(parseResponse('{"moves":"左移、直落"}').moves, ['left', 'hard']);
+});
+
+test('decide：请求体包含 response_format 强制 JSON', async () => {
+  const g = playingGame();
+  let capturedBody = null;
+  const spyFetch = async (url, opts) => {
+    capturedBody = JSON.parse(opts.body);
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"moves":["hard"]}' } }] }), text: async () => '' };
+  };
+  const ai = aiWith(spyFetch);
+  await ai.decide(g);
+  assert.deepEqual(capturedBody.response_format, { type: 'json_object' });
+  assert.equal(capturedBody.max_tokens, 500);
 });
