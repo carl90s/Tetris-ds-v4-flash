@@ -108,6 +108,32 @@ const EDGE = [
   out.rlWorks = out.rlOn && out.rlScore > 0 && !out.rlStatus.includes('⚠');
   await rctx.close();
 
+  // ---- 人玩时投喂 RL：手动模式放方块，RL 权重应被写入/更新 ----
+  const hctx = await browser.createBrowserContext();
+  const hpage = await hctx.newPage();
+  hpage.on('pageerror', e => errors.push('[learn pageerror] ' + e.message));
+  await hpage.goto('http://localhost:8901/index.html', { waitUntil: 'networkidle0' });
+  await new Promise(r => setTimeout(r, 400));
+  await hpage.$eval('#ai-engine', el => { el.value = 'rl'; el.dispatchEvent(new Event('change')); });
+  await hpage.$eval('#btn-start', el => el.click()); // 手动开始游戏（不开 AI 托管）
+  await new Promise(r => setTimeout(r, 300));
+  const wBefore = await hpage.evaluate(() => {
+    const raw = localStorage.getItem('tetris-rl-state');
+    return raw ? JSON.parse(raw).w : null;
+  });
+  // 手动放置 5 个方块（右移 + 硬降）
+  for (let i = 0; i < 5; i++) {
+    await hpage.keyboard.press('ArrowRight');
+    await hpage.keyboard.press('Space');
+    await new Promise(r => setTimeout(r, 200));
+  }
+  const wAfter = await hpage.evaluate(() => {
+    const raw = localStorage.getItem('tetris-rl-state');
+    return raw ? JSON.parse(raw).w : null;
+  });
+  out.learnFeedWorks = !!wAfter && (wBefore === null || JSON.stringify(wBefore) !== JSON.stringify(wAfter));
+  await hctx.close();
+
   await page.screenshot({ path: path.join(__dirname, '..', 'shot-e2e.png') });
   out.errors = errors;
   console.log(JSON.stringify(out, null, 2));
@@ -122,6 +148,7 @@ const EDGE = [
     || out.touchButtonsMobile < 6
     || out.scoreAfterTouchHard <= 0
     || !out.algoWorks
-    || !out.rlWorks;
+    || !out.rlWorks
+    || !out.learnFeedWorks;
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error('E2E FAILED:', e); process.exit(1); });
