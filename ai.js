@@ -215,8 +215,8 @@
   /* ============ 强化学习代理（REINFORCE with baseline） ============ */
 
   const RL_STORAGE_KEY = 'tetris-rl-state';
-  /** 初始权重 = 启发式默认（保证冷启动不弱于启发式）；洞/最高列惩罚加大；后 4 项为非线性特征 */
-  const RL_DEFAULT_W = [760, 1.5, 8, 50, 2, 18, 15, 2, 1.0, 0.5];
+  /** 初始权重 = 启发式默认（保证冷启动不弱于启发式）；洞/最高列惩罚加大；wellSum 惩罚调低（攒井代价小，鼓励竖放 I 消四连）；后 4 项为非线性特征 */
+  const RL_DEFAULT_W = [760, 1.5, 8, 50, 2, 18, 6, 2, 1.0, 0.5];
 
   /** 消行奖励表（rewardOf 用）：单次 1/2/3/4 行 = 50/200/500/1000 */
   const CLEAR_BONUS = [0, 50, 200, 500, 1000];
@@ -299,7 +299,7 @@
         - (phi.aggH2 || 0) * this.w[9];
     }
 
-    /** 决策：ε-greedy 选 Q 最高落点（含 2 步前瞻：考虑接下来 2 个方块在此放置后的价值） */
+    /** 决策：ε-greedy 选 Q 最高落点（含 2 步前瞻；wellSum 惩罚调低让攒井代价小，鼓励竖放 I） */
     decide(game) {
       const cands = enumeratePlacements(game);
       if (!cands.length) return null;
@@ -430,7 +430,7 @@
       this.w[3] = Math.min(200, Math.max(25, this.w[3]));
       this.w[4] = Math.min(40, Math.max(1.0, this.w[4]));
       this.w[5] = Math.min(200, Math.max(10, this.w[5]));
-      this.w[6] = Math.min(150, Math.max(5, this.w[6]));     // wellSum
+      this.w[6] = Math.min(100, Math.max(2, this.w[6]));     // wellSum（惩罚调低，鼓励攒井）
       this.w[7] = Math.min(30, Math.max(0.5, this.w[7]));    // landing
       this.w[8] = Math.min(40, Math.max(0.3, this.w[8]));    // maxH²
       this.w[9] = Math.min(25, Math.max(0.1, this.w[9]));    // aggH²
