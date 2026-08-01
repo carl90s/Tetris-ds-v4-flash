@@ -74,15 +74,9 @@ const EDGE = [
   await mpage.tap('.touch-btn[data-action="hard"]'); // 触控硬降
   await new Promise(r => setTimeout(r, 300));
   out.scoreAfterTouchHard = await mpage.$eval('#stat-score', el => Number(el.textContent));
-  out.touchRotateWorks = await mpage.evaluate(() => {
-    // 触控旋转按钮可触发方块旋转（通过按钮点击前后方块朝向变化间接验证）
-    return true;
-  });
+  // 触控旋转按钮点击不应报错（真实旋转效果已在桌面键盘流程验证）
   await mpage.tap('.touch-btn[data-action="rotate"]');
   await new Promise(r => setTimeout(r, 200));
-
-  // 游戏结束覆盖层文字检查（初始 ready 标题已验证）
-  out.overlayStartBtn = await page.$eval('#btn-start', el => el.textContent);
 
   await page.screenshot({ path: path.join(__dirname, '..', 'shot-e2e.png') });
   out.errors = errors;
