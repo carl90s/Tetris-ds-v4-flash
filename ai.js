@@ -148,7 +148,11 @@
           const nBest = bestOnBoard(placed, nextM0, W, rotateMatrix, COLS, ROWS, previews.slice(1), depth - 1, SHAPES);
           sc = sc * 0.5 + (nBest ? nBest.score : 0) * 0.5;
         }
-        if (sc > bestScore) { bestScore = sc; best = { rot, col, score: sc }; }
+        if (sc > bestScore ||
+          (sc === bestScore && Math.abs(col - (COLS - 1) / 2) < Math.abs(best.col - (COLS - 1) / 2))) {
+          // tie-break 选更居中列：避免对称局面系统性偏侧堆高
+          bestScore = sc; best = { rot, col, score: sc };
+        }
       }
       m = rotateMatrix(m);
     }
@@ -333,7 +337,11 @@
           const fv = this.valueOfBoard(c.boardAfter, previews, 2, ctx);
           q = q * 0.5 + fv * 0.5;
         }
-        if (q > bestQ) { bestQ = q; best = c; }
+        if (q > bestQ ||
+          (q === bestQ && Math.abs(c.col - (ctx.COLS - 1) / 2) < Math.abs(best.col - (ctx.COLS - 1) / 2))) {
+          // tie-break 选更居中列：避免对称局面系统性偏侧堆高
+          bestQ = q; best = c;
+        }
       }
       if (Math.random() < this.eps) {
         best = cands[Math.floor(Math.random() * cands.length)];
