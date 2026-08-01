@@ -57,7 +57,7 @@ scripts/e2e.js      端到端验证（puppeteer-core + Edge，含 AI mock 流程
 ## 测试
 
 ```bash
-npm test              # 单元测试（34 个用例：碰撞/旋转踢墙/消行/计分/状态机/AI 解析/回合执行等）
+npm test              # 单元测试（35 个用例：碰撞/旋转踢墙/消行/计分/状态机/AI 解析/回合执行等）
 # 端到端验证（需先起本地服务器）：
 python -m http.server 8901
 npm run test:e2e      # 无头浏览器模拟桌面 + 移动端完整交互
