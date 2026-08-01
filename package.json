@@ -4,6 +4,10 @@
   "private": true,
   "description": "俄罗斯方块网页游戏（纯 HTML/CSS/JS，无依赖）",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "test:e2e": "node test/e2e.js"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.4.0"
   }
 }

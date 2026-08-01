@@ -81,6 +81,21 @@ test('旋转：O 方块不可旋转', () => {
   assert.equal(g.rotate(1), false);
 });
 
+test('旋转踢墙：I 贴底时可通过上移转正', () => {
+  const g = playingGame();
+  g.current = {
+    type: 'I',
+    matrix: SHAPES.I.matrix.map(r => r.slice()),
+    color: SHAPES.I.color,
+    x: 3,
+    y: ROWS - 3 // 横 I 的方块行位于 ROWS-2，贴底
+  };
+  g.updateGhost();
+  assert.equal(g.rotate(1), true);
+  assert.equal(g.current.y, ROWS - 4, '应上移一格踢墙成功');
+  assert.equal(g.current.matrix[0][2], 1, '旋转后为竖 I');
+});
+
 test('软降：+1 分', () => {
   const g = playingGame();
   const y0 = g.current.y;
@@ -200,4 +215,12 @@ test('复位：score/lines/level 归零、棋盘清空', () => {
   assert.equal(g.level, 1);
   assert.equal(g.status, 'ready');
   assert.ok(g.board.every(row => row.every(c => c === 0)));
+});
+
+test('start() 不能从 over 直接恢复（需先 reset）', () => {
+  const g = playingGame();
+  g.status = 'over';
+  g.current = null;
+  assert.equal(g.start(), false);
+  assert.equal(g.status, 'over');
 });

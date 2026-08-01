@@ -132,14 +132,17 @@
       return true;
     }
 
-    /** 旋转（带踢墙：尝试左/右偏移 1~2 格） */
+    /** 旋转（轻量 SRS 踢墙：先试 x 偏移，再试上移） */
     rotate(dir = 1) {
       if (this.status !== 'playing' || !this.current) return false;
       const p = this.current;
       if (p.type === 'O') return false;
       const rotated = rotateMatrix(p.matrix);
-      for (const dx of [0, -dir, dir, -dir * 2, dir * 2]) {
-        const np = { ...p, matrix: rotated, x: p.x + dx };
+      const kicks = dir === 1
+        ? [[0, 0], [-1, 0], [1, 0], [-2, 0], [2, 0], [0, -1], [-1, -1], [1, -1], [0, -2]]
+        : [[0, 0], [1, 0], [-1, 0], [2, 0], [-2, 0], [0, -1], [1, -1], [-1, -1], [0, -2]];
+      for (const [dx, dy] of kicks) {
+        const np = { ...p, matrix: rotated, x: p.x + dx, y: p.y + dy };
         if (!this.collides(np)) {
           this.current = np;
           this.updateGhost();
@@ -270,7 +273,8 @@
     }
 
     start() {
-      if (this.status === 'ready' || this.status === 'paused' || this.status === 'over') {
+      // over 状态不能直接恢复（current 已为 null），需先 reset()
+      if (this.status === 'ready' || this.status === 'paused') {
         this.status = 'playing';
         this.fallAccum = 0;
         return true;

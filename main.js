@@ -11,6 +11,10 @@
   const ctx = canvas.getContext('2d');
   const nextCanvas = document.getElementById('next');
   const nctx = nextCanvas.getContext('2d');
+  // 高分屏适配（必须先于任何 dpr 使用声明）
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  nextCanvas.width = nextCanvas.width * dpr;
+  nextCanvas.height = nextCanvas.height * dpr;
   const NEXT_CELL = 15;
 
   const $ = id => document.getElementById(id);
@@ -31,11 +35,13 @@
 
   const BEST_KEY = 'tetris-highscore';
   const SOUND_KEY = 'tetris-sound';
-  let bestScore = parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0;
-  let soundOn = localStorage.getItem(SOUND_KEY) !== 'off';
+  // 安全读写：禁用存储（隐私模式等）时降级为内存，不影响游戏
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* 忽略 */ } }
+  let bestScore = parseInt(lsGet(BEST_KEY) || '0', 10) || 0;
+  let soundOn = lsGet(SOUND_KEY) !== 'off';
 
-  /* ---------- 高分屏适配 ---------- */
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  /* ---------- 高分屏适配（dpr 已在上方声明） ---------- */
   canvas.width = canvas.width * dpr;
   canvas.height = canvas.height * dpr;
   ctx.scale(dpr, dpr);
@@ -238,7 +244,7 @@
   function saveBest() {
     if (game.score > bestScore) {
       bestScore = game.score;
-      localStorage.setItem(BEST_KEY, String(bestScore));
+      lsSet(BEST_KEY, String(bestScore));
     }
   }
 
@@ -307,7 +313,8 @@
 
     if (code === 'Enter') {
       e.preventDefault(); // 防止聚焦按钮被再次触发
-      if (game.status !== 'playing') { startOrRestart(); return; }
+      if (game.status === 'paused') { doAction('pause'); return; }
+      if (game.status !== 'playing') { startOrRestart(); }
       return;
     }
     if (code === 'KeyM') { toggleSound(); return; }
@@ -349,14 +356,21 @@
   });
 
   /* ---------- 面板按钮 ---------- */
-  els.btnStart.addEventListener('click', () => { ensureAudio(); startOrRestart(); });
+  els.btnStart.addEventListener('click', () => {
+    ensureAudio();
+    if (game.status === 'paused') { // 暂停时按钮是“继续游戏”，不能重开
+      doAction('pause');
+      return;
+    }
+    startOrRestart();
+  });
   els.btnPause.addEventListener('click', () => { ensureAudio(); doAction('pause'); });
   els.btnRestart.addEventListener('click', () => { ensureAudio(); startOrRestart(); });
   els.btnSound.addEventListener('click', toggleSound);
 
   function toggleSound() {
     soundOn = !soundOn;
-    localStorage.setItem(SOUND_KEY, soundOn ? 'on' : 'off');
+    lsSet(SOUND_KEY, soundOn ? 'on' : 'off');
     updateHUD();
     if (soundOn) { ensureAudio(); sfx.rotate(); }
   }
