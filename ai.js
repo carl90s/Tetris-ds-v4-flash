@@ -74,6 +74,15 @@
     }
     let bump = 0;
     for (let c = 1; c < COLS; c++) bump += Math.abs(hs[c] - hs[c - 1]);
+    // 井深和（Dellacherie 关键特征）：两侧高于自身的深槽，I 块垂直放入可消 4 行
+    let wellSum = 0;
+    const topH = hs.map(h => ROWS - h); // 转为“距顶部”高度（越大越高）
+    for (let c = 0; c < COLS; c++) {
+      const left = c > 0 ? topH[c - 1] : ROWS;
+      const right = c < COLS - 1 ? topH[c + 1] : ROWS;
+      const well = Math.max(0, Math.min(left, right) - topH[c]);
+      wellSum += (well * (well + 1)) / 2;
+    }
     // 行过渡：每行 空↔实 的变化次数（表面平整度，比凸度更全面）
     let rowTrans = 0;
     for (let r = 0; r < ROWS; r++) {
@@ -85,7 +94,7 @@
       }
       if (prev !== true) rowTrans++; // 右边界
     }
-    return { full: 0, aggH, maxH, holes, bump, rowTrans };
+    return { full: 0, aggH, maxH, holes, bump, wellSum, rowTrans };
   }
 
   /* ============ 启发式评分 ============ */
@@ -164,6 +173,11 @@
     let m = m0;
     const out = [];
     for (let rot = 0; rot < 4; rot++) {
+      // 当前朝向下方块的非零最大行（落点高度 landing 用）
+      let maxRow = 0;
+      for (let r = 0; r < m.length; r++) {
+        if (m[r].some(v => v)) maxRow = r;
+      }
       for (let col = 0; col < COLS; col++) {
         const y = dropYOn(board, m, col);
         if (y === null) continue;
@@ -176,7 +190,11 @@
           rot, col, y,
           matrix: m.map(r => r.slice()),
           boardAfter: placed,
-          phi: { full: s.full, aggH: s.aggH, maxH: s.maxH, holes: s.holes, bump: s.bump, rowTrans: s.rowTrans }
+          phi: {
+            full: s.full, aggH: s.aggH, maxH: s.maxH, holes: s.holes,
+            bump: s.bump, wellSum: s.wellSum, rowTrans: s.rowTrans,
+            landing: ROWS - (y + maxRow + 1) // 落点高度：方块最低格距底部
+          }
         });
       }
       m = rotateMatrix(m);
@@ -195,8 +213,8 @@
   /* ============ 强化学习代理（REINFORCE with baseline） ============ */
 
   const RL_STORAGE_KEY = 'tetris-rl-state';
-  /** 初始权重 = 启发式默认（保证冷启动不弱于启发式），其中洞惩罚加大到 50 */
-  const RL_DEFAULT_W = [760, 1.5, 4, 50, 2, 18];
+  /** 初始权重 = 启发式默认（保证冷启动不弱于启发式），洞惩罚加大到 50；后两项为新增特征 wellSum/landing */
+  const RL_DEFAULT_W = [760, 1.5, 4, 50, 2, 18, 15, 2];
 
   /** 消行奖励表（rewardOf 用）：单次 1/2/3/4 行 = 50/200/500/1000 */
   const CLEAR_BONUS = [0, 50, 200, 500, 1000];
@@ -219,6 +237,7 @@
   class RLAgent {
     constructor() {
       this.w = RL_DEFAULT_W.slice();
+      this.g2 = RL_DEFAULT_W.map(() => 0); // AdaGrad：每权重累计梯度平方
       this.episodes = 0;
       this.baseline = 0;
       this.alpha = 0.001;   // 学习率（配合 mini-batch 回放）
@@ -238,7 +257,12 @@
       if (!raw) return;
       try {
         const s = JSON.parse(raw);
-        if (Array.isArray(s.w) && s.w.length === 6) this.w = s.w.map(Number);
+        if (Array.isArray(s.w) && s.w.length === 8) {
+          this.w = s.w.map(Number);
+        } else if (Array.isArray(s.w) && s.w.length === 6) {
+          // 旧版 6 维权重迁移：追加 wellSum/landing 默认值
+          this.w = s.w.map(Number).concat([15, 2]);
+        }
         if (Number.isFinite(s.episodes)) this.episodes = s.episodes;
         if (Number.isFinite(s.eps)) this.eps = s.eps;
       } catch (e) { /* 忽略 */ }
@@ -263,31 +287,24 @@
         - phi.maxH * this.w[2]
         - phi.holes * this.w[3]
         - phi.bump * this.w[4]
-        - phi.rowTrans * this.w[5];
+        - phi.rowTrans * this.w[5]
+        - (phi.wellSum || 0) * this.w[6]
+        - (phi.landing || 0) * this.w[7];
     }
 
-    /** 决策：ε-greedy 选 Q 最高落点（含 1 步前瞻：考虑下一方块在此放置后的最优） */
+    /** 决策：ε-greedy 选 Q 最高落点（含 2 步前瞻：考虑接下来 2 个方块在此放置后的价值） */
     decide(game) {
       const cands = enumeratePlacements(game);
       if (!cands.length) return null;
-      // 下一方块（初始朝向）用于前瞻
-      const SHAPES = game.constructor.SHAPES || {};
-      const rotateMatrix = game.constructor.rotateMatrix;
-      const COLS = game.constructor.COLS, ROWS = game.constructor.ROWS;
+      const ctx = this.boardCtx(game);
       const previews = game.preview();
-      const nextShape = previews.length ? SHAPES[previews[0]] : null;
       let best = cands[0], bestQ = -Infinity;
       for (const c of cands) {
         let q = this.q(c.phi);
-        if (nextShape) {
-          // 下一块在此放置后棋盘上的最优 q（0.5 权重）
-          const nCands = enumerateOnBoard(c.boardAfter, nextShape.matrix.map(r => r.slice()), COLS, ROWS, rotateMatrix);
-          let nBestQ = -Infinity;
-          for (const nc of nCands) {
-            const nq = this.q(nc.phi);
-            if (nq > nBestQ) nBestQ = nq;
-          }
-          if (Number.isFinite(nBestQ)) q = q * 0.5 + nBestQ * 0.5;
+        // 2 步前瞻：接下来 2 个方块在此放置后的最优落点价值（折扣叠加，0.5 权重）
+        if (previews.length) {
+          const fv = this.valueOfBoard(c.boardAfter, previews, 2, ctx);
+          q = q * 0.5 + fv * 0.5;
         }
         if (q > bestQ) { bestQ = q; best = c; }
       }
@@ -308,22 +325,29 @@
       return (CLEAR_BONUS[clear] || 0) - phi.aggH * 1.0 - phi.holes * 60 - phi.maxH * 2;
     }
 
+    /** 棋盘上下文（SHAPES/旋转/尺寸），供 valueOfBoard 使用 */
+    boardCtx(game) {
+      return {
+        SHAPES: game.constructor.SHAPES || {},
+        rotateMatrix: game.constructor.rotateMatrix,
+        COLS: game.constructor.COLS,
+        ROWS: game.constructor.ROWS
+      };
+    }
+
     /**
-     * 未来价值：评估放置后棋盘上，接下来 steps 个方块的最优落点价值（折扣叠加）。
-     * 用 γ·Q₁ + γ²·Q₂ + γ³·Q₃ … 把多步未来价值都纳入 TD 目标。
+     * 未来价值：对任意棋盘 rollout 评估接下来 steps 个方块的最优落点价值（折扣叠加）。
+     * 用 γ·Q₁ + γ²·Q₂ + γ³·Q₃ … 把多步未来价值都纳入。
      */
-    futureValue(game, steps = 3) {
-      const SHAPES = game.constructor.SHAPES || {};
-      const rotateMatrix = game.constructor.rotateMatrix;
-      const COLS = game.constructor.COLS, ROWS = game.constructor.ROWS;
-      const previews = game.preview();
-      let board = game.board;
+    valueOfBoard(board, previews, steps, ctx) {
+      const { SHAPES, rotateMatrix, COLS, ROWS } = ctx;
+      let cur = board;
       let total = 0, g = this.gamma;
       for (let i = 0; i < steps; i++) {
         const type = previews[i];
         const shape = type ? SHAPES[type] : null;
         if (!shape) break;
-        const cands = enumerateOnBoard(board, shape.matrix.map(r => r.slice()), COLS, ROWS, rotateMatrix);
+        const cands = enumerateOnBoard(cur, shape.matrix.map(r => r.slice()), COLS, ROWS, rotateMatrix);
         if (!cands.length) break;
         let bestQ = -Infinity, bestCand = null;
         for (const c of cands) {
@@ -332,9 +356,14 @@
         }
         total += g * bestQ;
         g *= this.gamma;
-        board = bestCand ? bestCand.boardAfter : board;
+        cur = bestCand ? bestCand.boardAfter : cur;
       }
       return total;
+    }
+
+    /** 当前棋盘的未来价值（TD 目标用，3 步） */
+    futureValue(game, steps = 3) {
+      return this.valueOfBoard(game.board, game.preview(), steps, this.boardCtx(game));
     }
 
     /**
@@ -349,7 +378,7 @@
       // 未来价值：接下来 3 个方块的最优落点价值（折扣叠加）
       const future = this.futureValue(game, 3);
       // 存入回放池（环形缓冲）
-      const exp = { phi: { full: phi.full, aggH: phi.aggH, maxH: phi.maxH, holes: phi.holes, bump: phi.bump, rowTrans: phi.rowTrans }, reward, future };
+      const exp = { phi: { full: phi.full, aggH: phi.aggH, maxH: phi.maxH, holes: phi.holes, bump: phi.bump, rowTrans: phi.rowTrans, wellSum: phi.wellSum, landing: phi.landing }, reward, future };
       if (this.replay.length < this.replayCapacity) this.replay.push(exp);
       else this.replay[this.replayIdx] = exp;
       this.replayIdx = (this.replayIdx + 1) % this.replayCapacity;
@@ -363,16 +392,25 @@
       this.steps.push({ phi });
     }
 
-    /** 对单条经验做 TD 梯度更新 */
+    /** 对单条经验做 TD 梯度更新（AdaGrad 自适应学习率：每权重独立步长） */
     applyGrad(exp) {
       const qPrev = this.q(exp.phi);
       const delta = exp.reward + exp.future - qPrev;
-      this.w[0] += this.alpha * delta * clearFactor(exp.phi.full);
-      this.w[1] += this.alpha * delta * (-exp.phi.aggH);
-      this.w[2] += this.alpha * delta * (-exp.phi.maxH);
-      this.w[3] += this.alpha * delta * (-exp.phi.holes);
-      this.w[4] += this.alpha * delta * (-exp.phi.bump);
-      this.w[5] += this.alpha * delta * (-exp.phi.rowTrans);
+      // 各权重梯度（惩罚项带负号）
+      const grads = [
+        delta * clearFactor(exp.phi.full),
+        delta * (-exp.phi.aggH),
+        delta * (-exp.phi.maxH),
+        delta * (-exp.phi.holes),
+        delta * (-exp.phi.bump),
+        delta * (-exp.phi.rowTrans),
+        delta * (-(exp.phi.wellSum || 0)),
+        delta * (-(exp.phi.landing || 0))
+      ];
+      for (let i = 0; i < this.w.length; i++) {
+        this.g2[i] += grads[i] * grads[i];
+        this.w[i] += this.alpha * grads[i] / (Math.sqrt(this.g2[i]) + 1e-8);
+      }
     }
 
     /** 权重范围限制（防“奖励黑客”学崩） */
@@ -383,6 +421,8 @@
       this.w[3] = Math.min(200, Math.max(25, this.w[3]));
       this.w[4] = Math.min(40, Math.max(1.0, this.w[4]));
       this.w[5] = Math.min(200, Math.max(10, this.w[5]));
+      this.w[6] = Math.min(150, Math.max(5, this.w[6]));   // wellSum
+      this.w[7] = Math.min(30, Math.max(0.5, this.w[7]));  // landing
     }
 
     /** 回合结束：结算统计与探索衰减 */
@@ -437,17 +477,13 @@
           this.w[3] += f * (-(human.phi.holes - c.phi.holes));
           this.w[4] += f * (-(human.phi.bump - c.phi.bump));
           this.w[5] += f * (-(human.phi.rowTrans - c.phi.rowTrans));
+          this.w[6] += f * (-(human.phi.wellSum - c.phi.wellSum));
+          this.w[7] += f * (-(human.phi.landing - c.phi.landing));
           updated = true;
         }
       }
       if (!updated) return;
-      // 与 observe 相同的权重范围限制
-      this.w[0] = Math.min(2000, Math.max(200, this.w[0]));
-      this.w[1] = Math.min(100, Math.max(0.8, this.w[1]));
-      this.w[2] = Math.min(60, Math.max(1.5, this.w[2]));
-      this.w[3] = Math.min(200, Math.max(20, this.w[3]));
-      this.w[4] = Math.min(40, Math.max(0.8, this.w[4]));
-      this.w[5] = Math.min(200, Math.max(8, this.w[5]));
+      this.clampWeights();
       this.save();
     }
 
@@ -456,6 +492,7 @@
       return {
         full: this.w[0], aggH: this.w[1], maxH: this.w[2],
         holes: this.w[3], bump: this.w[4], rowTrans: this.w[5],
+        wellSum: this.w[6], landing: this.w[7],
         episodes: this.episodes, eps: this.eps
       };
     }

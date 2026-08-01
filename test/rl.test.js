@@ -176,3 +176,12 @@ test('RLAgent：回放池环形缓冲上限', () => {
   }
   assert.ok(rl.replay.length <= 10, '环形缓冲应限制在容量内');
 });
+test('RLAgent：8 维权重含 wellSum/landing 且作为惩罚生效', () => {
+  const rl = new RLAgent();
+  assert.equal(rl.w.length, 8);
+  assert.equal(rl.g2.length, 8, 'AdaGrad 累计应为 8 维');
+  const phi = { full: 0, aggH: 0, maxH: 0, holes: 0, bump: 0, rowTrans: 0, wellSum: 10, landing: 5 };
+  const qWith = rl.q(phi);
+  const qWithout = rl.q({ ...phi, wellSum: 0, landing: 0 });
+  assert.ok(qWith < qWithout, 'wellSum/landing 应降低 Q（惩罚项）');
+});
