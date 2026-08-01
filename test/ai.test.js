@@ -158,3 +158,20 @@ test('AI 模式 noGravity：tick 不推进下落', () => {
   g.tick(5000, false); // 恢复重力
   assert.ok(g.current.y > y0 || g.status !== 'playing' || !g.current, '恢复重力后下落或锁定');
 });
+test('playTurn：决策期间重开游戏，旧回合不作用到新局', async () => {
+  const g = playingGame();
+  let resolveFetch;
+  const delayedFetch = () => new Promise(res => { resolveFetch = res; });
+  const ai = aiWith(delayedFetch);
+  const p = ai.playTurn(g); // 挂起在 fetch
+  await new Promise(r => setTimeout(r, 20));
+  g.reset(); // 重开：generation 递增、棋盘清空
+  resolveFetch({
+    ok: true, status: 200,
+    json: async () => ({ choices: [{ message: { content: '{"moves":["hard"],"comment":"旧回合"}' } }] }),
+    text: async () => ''
+  });
+  await p;
+  assert.equal(g.status, 'ready', '新局保持未开始状态');
+  assert.ok(g.board.every(row => row.every(c => c === 0)), '旧回合不得在棋盘上留方块');
+});

@@ -54,6 +54,7 @@
 
     /** 初始化 / 重开一局 */
     reset() {
+      this.generation = (this.generation || 0) + 1; // 局数标记：AI 旧回合据此识别过期
       this.board = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
       this.queue = [];
       this.current = null;

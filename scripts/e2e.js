@@ -112,9 +112,10 @@ const EDGE = [
   await apage.click('#btn-ai-settings');
   await new Promise(r => setTimeout(r, 200));
   out.aiModalShown = await apage.$eval('#ai-modal', el => !el.classList.contains('hidden'));
-  await apage.type('#ai-baseurl', 'https://api.mock.local/v1');
-  await apage.type('#ai-apikey', 'sk-e2e-mock');
-  await apage.type('#ai-model', 'mock-model');
+  // 直接赋值（type() 会追加到预填值之后，污染配置）
+  await apage.$eval('#ai-baseurl', el => { el.value = 'https://api.mock.local/v1'; el.dispatchEvent(new Event('input')); });
+  await apage.$eval('#ai-apikey', el => { el.value = 'sk-e2e-mock'; el.dispatchEvent(new Event('input')); });
+  await apage.$eval('#ai-model', el => { el.value = 'mock-model'; el.dispatchEvent(new Event('input')); });
   // 放慢动作间隔，配合最小回合间隔，避免 mock 零延迟导致快速堆满
   await apage.evaluate(() => {
     const d = document.getElementById('ai-delay');

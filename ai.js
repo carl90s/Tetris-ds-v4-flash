@@ -149,7 +149,7 @@
      * @param {Object}  opts.settings    初始设置（缺省从 localStorage 读取）
      */
     constructor(opts = {}) {
-      this.fetchImpl = opts.fetchImpl || (typeof fetch !== 'undefined' ? fetch.bind(window || self) : null);
+      this.fetchImpl = opts.fetchImpl || (typeof fetch !== 'undefined' ? fetch.bind(null) : null);
       this.settings = opts.settings ? Object.assign(defaultSettings(), opts.settings) : loadSettings();
       this.onError = opts.onError || null; // 回调：AI 决策出错时通知 UI
     }
@@ -229,16 +229,17 @@
      * @returns {Promise<{moves:string[], applied:string[], comment:string, done:boolean}>}
      */
     async playTurn(game) {
+      const gen = game.generation; // 记录局数：重开/复位后旧回合立即失效
       const { moves, comment } = await this.decide(game);
       const applied = [];
       for (const m of moves) {
-        if (game.status !== 'playing' || !game.current) break;
+        if (game.generation !== gen || game.status !== 'playing' || !game.current) break;
         if (this.applyMove(game, m)) applied.push(m);
         if (m === 'hard') break; // 已锁定，本回合结束
         if (this.settings.moveDelay > 0) await sleep(this.settings.moveDelay);
       }
       // 兜底：动作用尽但方块仍在空中 → 硬降锁定（本回合已 hard 过则跳过）
-      if (game.status === 'playing' && game.current && !applied.includes('hard')) {
+      if (game.generation === gen && game.status === 'playing' && game.current && !applied.includes('hard')) {
         game.hardDrop();
         applied.push('hard');
       }

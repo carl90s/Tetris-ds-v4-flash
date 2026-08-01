@@ -38,6 +38,7 @@ python -m http.server 8080
 - 等级 / 分数 / 消行统计，最高分本地保存（localStorage，禁用存储时自动降级）
 - Web Audio 合成音效（无外部资源），可一键静音
 - 响应式布局 + 触屏按钮（长按连发），手机 / 平板可用
+- 🤖 AI 智能托管：接入 OpenAI 兼容大模型（DeepSeek / OpenAI / 通义 / Ollama 本地）自动操控
 - 高分屏（DPR）适配
 
 ## 项目结构
@@ -46,15 +47,17 @@ python -m http.server 8080
 index.html          页面结构
 style.css           样式（桌面 / 移动端响应式）
 game.js             核心逻辑（无 DOM 依赖，可单测）
-main.js             渲染 / 输入 / 音效 / UI
+ai.js               AI 控制器（prompt / API 调用 / 动作执行，可单测）
+main.js             渲染 / 输入 / 音效 / UI / AI 托管集成
 test/game.test.js   核心逻辑单元测试（node:test）
-scripts/e2e.js      端到端验证（puppeteer-core + Edge）
+test/ai.test.js     AI 逻辑单元测试（node:test）
+scripts/e2e.js      端到端验证（puppeteer-core + Edge，含 AI mock 流程）
 ```
 
 ## 测试
 
 ```bash
-npm test              # 单元测试（19 个用例：碰撞/旋转踢墙/消行/计分/状态机等）
+npm test              # 单元测试（34 个用例：碰撞/旋转踢墙/消行/计分/状态机/AI 解析/回合执行等）
 # 端到端验证（需先起本地服务器）：
 python -m http.server 8901
 npm run test:e2e      # 无头浏览器模拟桌面 + 移动端完整交互
@@ -64,3 +67,14 @@ npm run test:e2e      # 无头浏览器模拟桌面 + 移动端完整交互
 
 - 按住 `↓` 或触屏 ▼ 可连续软降；按住 ◀ ▶ 可连续平移。
 - 硬降（空格）不打断连击，快速堆叠时善用幽灵方块规划落点。
+
+## 🤖 AI 智能托管
+
+点击侧栏「AI 托管」→「AI 设置」配置大模型，开启后由 AI 自动读取棋盘并决策放置，可随时点按钮停用交还手动。
+
+- **支持服务商**：DeepSeek / OpenAI / 通义千问 / Ollama 本地 / 自定义（任意 OpenAI 兼容接口）
+- **配置内容**：API 地址、API Key、模型名、动作间隔；「测试连接」可先验证配置是否可用
+- **工作方式**：每回合将棋盘与当前方块序列化为文本发给模型，模型返回 JSON 动作序列（如 `{"moves":["left","hard"],"comment":"..."}`），由游戏逐条执行；模型输出非法时自动容错
+- **容错机制**：请求失败自动落底当前方块；连续失败 2 次自动停用并提示；重开 / 暂停期间旧回合决策不会作用到新局
+- **本地免费方案**：安装 [Ollama](https://ollama.com) 后拉取模型（如 `ollama pull qwen2.5:7b`），服务商选「Ollama 本地」即可免 API Key 使用
+- **安全提示**：API Key 仅保存在本机浏览器 localStorage，请勿在公共 / 共享电脑上保存；必要时可随时在服务商后台撤销

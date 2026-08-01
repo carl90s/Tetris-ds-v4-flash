@@ -358,3 +358,4 @@ body {
 @media (max-width: 720px) {
   .ai-panel { flex: 1 1 100%; }
 }
+.ai-note { font-size: 11px; color: var(--muted); line-height: 1.5; }
