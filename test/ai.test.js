@@ -224,11 +224,10 @@ test('decide：deepseek-reasoner 不加 response_format', async () => {
   assert.equal(captured.max_tokens, 1024);
 });
 
-test('decide：content 为空时回退 reasoning_content', async () => {
+test('decide：推理模型只输出 reasoning 时明确报错', async () => {
   const g = playingGame();
-  const ai = aiWith(mockFetch({ choices: [{ message: { content: null, reasoning_content: '思考中…… {"moves":["left","hard"]}' } }] }));
-  const r = await ai.decide(g);
-  assert.ok(r.raw.includes('思考中'), 'raw 应包含 reasoning 内容');
+  const ai = aiWith(mockFetch({ choices: [{ message: { content: null, reasoning_content: '思考过程……' } }] }));
+  await assert.rejects(() => ai.decide(g), /推理模型/);
 });
 
 test('parseResponse：批量 turns 格式', () => {

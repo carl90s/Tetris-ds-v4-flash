@@ -300,10 +300,16 @@
       const msg = data && data.choices && data.choices[0] && data.choices[0].message
         ? data.choices[0].message
         : null;
-      // 推理模型：最终输出可能在 reasoning_content，content 可能为空
-      const content = msg ? (msg.content || msg.reasoning_content || '') : '';
+      const content = msg ? (msg.content || '') : '';
+      const reasoning = msg ? (msg.reasoning_content || '') : '';
+      // 推理模型（deepseek-reasoner 等）：只返回推理过程、最终动作为空 → 明确报错引导换模型
+      if (!content && reasoning) {
+        const e = new Error('模型「' + this.settings.model + '」疑似推理模型（只输出思维过程、未给出动作 JSON）。请在 AI 设置中改用对话模型，如 deepseek-chat / gpt-4o-mini');
+        if (this.onError) this.onError(e.message);
+        throw e;
+      }
       const parsed = parseResponse(content);
-      return { turns: parsed.turns, comment: parsed.comment, raw: String(content).slice(0, 120) };
+      return { turns: parsed.turns, comment: parsed.comment, raw: String(content || reasoning).slice(0, 120) };
     }
 
     /** 执行一个动作，返回是否生效 */
