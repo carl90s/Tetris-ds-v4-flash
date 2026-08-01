@@ -156,3 +156,23 @@ test('RLAgent：有 I 竖放消 4 行机会时优先竖放', () => {
   assert.ok(chosen, '选中候选应存在');
   assert.equal(chosen.phi.full, 4, '应选择能消 4 行的竖放落点（实际 ' + chosen.phi.full + '）');
 });
+test('RLAgent：经验回放池存储与批量更新', () => {
+  const rl = new RLAgent();
+  const g = playingGame();
+  for (let i = 0; i < 12; i++) {
+    rl.observe({ full: i % 3, aggH: 8, maxH: 5, holes: 2, bump: 3, rowTrans: 15 }, g);
+  }
+  assert.equal(rl.replay.length, 12, '经验应存入回放池');
+  assert.ok(rl.w.every(v => Number.isFinite(v)), '批量更新后权重应有限');
+  assert.equal(rl.steps.length, 12);
+});
+
+test('RLAgent：回放池环形缓冲上限', () => {
+  const rl = new RLAgent();
+  rl.replayCapacity = 10;
+  const g = playingGame();
+  for (let i = 0; i < 25; i++) {
+    rl.observe({ full: 0, aggH: 6, maxH: 4, holes: 1, bump: 2, rowTrans: 10 }, g);
+  }
+  assert.ok(rl.replay.length <= 10, '环形缓冲应限制在容量内');
+});

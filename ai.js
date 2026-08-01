@@ -221,7 +221,11 @@
       this.w = RL_DEFAULT_W.slice();
       this.episodes = 0;
       this.baseline = 0;
-      this.alpha = 0.002;   // 学习率
+      this.alpha = 0.001;   // 学习率（配合 mini-batch 回放）
+      this.replay = [];     // 经验回放池
+      this.replayCapacity = 500;
+      this.batchSize = 8;
+      this.replayIdx = 0;   // 环形缓冲写指针
       this.gamma = 0.95;    // 折扣
       this.eps = 0.08;      // 探索率（随局数衰减）
       this.steps = [];      // 本局记录（统计用）
@@ -339,27 +343,46 @@
      * @param {Object} game 当前游戏（已放置并生成新方块）
      */
     observe(phi, game) {
-      // 即时奖励：消行递增收益 - 堆高/洞的即时代价（防止 TD 只认消行、奖励黑客）
+      // 即时奖励：消行递增收益 - 堆高/洞的即时代价
       const reward = this.rewardOf(phi);
       this.episodeReward += reward;
-      // 未来价值：接下来 3 个方块的最优落点价值（折扣叠加，把未来价值都放上去）
+      // 未来价值：接下来 3 个方块的最优落点价值（折扣叠加）
       const future = this.futureValue(game, 3);
-      const qPrev = this.q(phi);
-      const delta = reward + future - qPrev;
-      this.w[0] += this.alpha * delta * clearFactor(phi.full);
-      this.w[1] += this.alpha * delta * (-phi.aggH);
-      this.w[2] += this.alpha * delta * (-phi.maxH);
-      this.w[3] += this.alpha * delta * (-phi.holes);
-      this.w[4] += this.alpha * delta * (-phi.bump);
-      this.w[5] += this.alpha * delta * (-phi.rowTrans);
-      // 权重范围：full 可升，惩罚项设下限防“奖励黑客”学崩
+      // 存入回放池（环形缓冲）
+      const exp = { phi: { full: phi.full, aggH: phi.aggH, maxH: phi.maxH, holes: phi.holes, bump: phi.bump, rowTrans: phi.rowTrans }, reward, future };
+      if (this.replay.length < this.replayCapacity) this.replay.push(exp);
+      else this.replay[this.replayIdx] = exp;
+      this.replayIdx = (this.replayIdx + 1) % this.replayCapacity;
+      // 从回放池采样 mini-batch 复习更新（降方差、样本复用）
+      const n = Math.min(this.batchSize, this.replay.length);
+      for (let i = 0; i < n; i++) {
+        const e = this.replay[Math.floor(Math.random() * this.replay.length)];
+        this.applyGrad(e);
+      }
+      this.clampWeights();
+      this.steps.push({ phi });
+    }
+
+    /** 对单条经验做 TD 梯度更新 */
+    applyGrad(exp) {
+      const qPrev = this.q(exp.phi);
+      const delta = exp.reward + exp.future - qPrev;
+      this.w[0] += this.alpha * delta * clearFactor(exp.phi.full);
+      this.w[1] += this.alpha * delta * (-exp.phi.aggH);
+      this.w[2] += this.alpha * delta * (-exp.phi.maxH);
+      this.w[3] += this.alpha * delta * (-exp.phi.holes);
+      this.w[4] += this.alpha * delta * (-exp.phi.bump);
+      this.w[5] += this.alpha * delta * (-exp.phi.rowTrans);
+    }
+
+    /** 权重范围限制（防“奖励黑客”学崩） */
+    clampWeights() {
       this.w[0] = Math.min(2000, Math.max(200, this.w[0]));
       this.w[1] = Math.min(100, Math.max(1.0, this.w[1]));
       this.w[2] = Math.min(60, Math.max(2.0, this.w[2]));
       this.w[3] = Math.min(200, Math.max(25, this.w[3]));
       this.w[4] = Math.min(40, Math.max(1.0, this.w[4]));
       this.w[5] = Math.min(200, Math.max(10, this.w[5]));
-      this.steps.push({ phi });
     }
 
     /** 回合结束：结算统计与探索衰减 */
