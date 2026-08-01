@@ -35,6 +35,7 @@
     aiEngine: $('ai-engine'),
     aiLearnHuman: $('ai-learn-human'),
     aiAuto: $('ai-auto'),
+    aiReset: $('btn-ai-reset'),
     aiStatus: $('ai-status')
   };
 
@@ -430,6 +431,18 @@
     lsSet('tetris-rl-auto', String(rlAutoEpisodes));
   });
   els.aiAuto.value = rlAutoEpisodes;
+
+  // 一键重置 RL 学习：清除已学权重，恢复默认
+  els.aiReset.addEventListener('click', () => {
+    if (!confirm('确定清除强化学习已学到的权重，重新开始学习吗？')) return;
+    localStorage.removeItem('tetris-rl-state'); // 清除权重存储
+    // 重新实例化 RL（恢复默认权重）
+    const fresh = new TetrisAI.RLAgent();
+    for (const k of ['w', 'g2', 'eps', 'episodes', 'replay']) rlAgent[k] = fresh[k];
+    rlLeft = 0;
+    setAIStatus('✅ RL 学习已重置（权重恢复默认）', 'ok');
+    updateAIUI();
+  });
 
   // 人玩时投喂 RL：方块锁定瞬间（AI 未托管）模仿人类落点
   game.onBeforeLock = (g) => {

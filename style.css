@@ -402,3 +402,7 @@ body {
 }
 .ai-auto-row input[type="number"]:focus { border-color: var(--accent); }
 .ai-auto-row span { font-size: 11px; color: var(--muted); }
+
+.ai-reset-row { margin-top: 8px; align-items: center; }
+.ai-reset-row .mini-btn { flex: 0 0 auto; padding: 7px 10px; font-size: 12px; }
+.ai-reset-tip { font-size: 11px; color: var(--muted); }
