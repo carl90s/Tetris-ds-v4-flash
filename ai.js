@@ -23,8 +23,36 @@
 
   const SETTINGS_KEY = 'tetris-ai-settings';
   const VALID_MOVES = ['left', 'right', 'rotate', 'rotateCCW', 'soft', 'hard'];
+  /** 动作别名（含中文）：模型可能输出中文动作名 */
+  const MOVE_ALIASES = {
+    left: ['left', '左', '左移', '向左', '向左移', '往左'],
+    right: ['right', '右', '右移', '向右', '向右移', '往右'],
+    rotate: ['rotate', '旋转', '转', '顺时针', '顺旋'],
+    rotateCCW: ['rotateccw', '逆时针', '逆旋', '反向旋转', '左旋'],
+    soft: ['soft', '下移', '下落', '向下', '下', '软降'],
+    hard: ['hard', 'drop', '直落', '落底', '落', '放下', '硬降', '快速落下']
+  };
   const MAX_MOVES = 20;
   const REQUEST_TIMEOUT_MS = 20000;
+
+  /** 把模型输出的任意动作写法归一化为标准动作名（最长别名优先，避免“落下”误判） */
+  function normalizeMove(m) {
+    if (typeof m !== 'string') return null;
+    const s = m.toLowerCase().replace(/[\s_\-\u3001\uFF0C\uFF1B]/g, '');
+    if (!s) return null;
+    for (const canon of VALID_MOVES) {
+      if (canon === s) return canon;
+    }
+    const all = [];
+    for (const [canon, aliases] of Object.entries(MOVE_ALIASES)) {
+      for (const a of aliases) all.push([a, canon]);
+    }
+    all.sort((x, y) => y[0].length - x[0].length);
+    for (const [a, canon] of all) {
+      if (s === a || s.includes(a)) return canon;
+    }
+    return null;
+  }
 
   function lsGet(k) {
     try { return typeof localStorage !== 'undefined' ? localStorage.getItem(k) : null; } catch (e) { return null; }
@@ -107,8 +135,12 @@
       '2. 优先旋转到合适朝向，再水平移动到目标列，最后用 "hard" 落底；',
       '3. 如果方块已经在目标位置，直接输出 ["hard"]；',
       '4. 不要输出解释性文字、不要用 Markdown 代码块，只输出 JSON。',
-      '5. 除非方块已经对准目标位置，否则不要直接输出 "hard"——必须先使用 left/right/rotate 把方块调整到目标列和朝向，最后再 "hard"。',
+      '5. "hard" 必须是最后一个动作，且在此之前至少有一个移动或旋转动作（除非方块已经在目标位置正上方）。禁止输出只含 "hard" 的动作序列。',
       '6. 输出中不能包含注释文字、逗号缺失、多余标点等 JSON 语法问题。',
+      '动作序列示例：',
+      '{"moves":["right","rotate","right","right","hard"],"comment":"旋转后放到第 6 列"}',
+      '{"moves":["left","left","hard"],"comment":"放到第 3 列"}',
+      '{"moves":["rotate","left","left","hard"],"comment":"先旋转再左移"}',
       '策略建议：尽量消行；方块放得越低越好；避免留下难以填补的缝隙；优先把方块放在堆叠较低的一侧。'
     ].join('\n');
   }
@@ -148,10 +180,12 @@
       }
     }
     if (!obj || !Array.isArray(obj.moves)) return { moves: [], comment: '' };
-    const moves = obj.moves
-      .filter(m => typeof m === 'string' && VALID_MOVES.includes(m.toLowerCase()))
-      .map(m => m.toLowerCase())
-      .slice(0, MAX_MOVES);
+    const moves = [];
+    for (const m of obj.moves) {
+      if (moves.length >= MAX_MOVES) break;
+      const norm = normalizeMove(m);
+      if (norm) moves.push(norm);
+    }
     return { moves, comment: typeof obj.comment === 'string' ? obj.comment.slice(0, 60) : '' };
   }
 

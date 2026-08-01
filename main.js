@@ -54,6 +54,7 @@
   let aiFailCount = 0;
   let aiEmptyCount = 0;      // 连续"未解析出动作"次数
   let aiLastComment = '';
+  let aiLastMoves = '';      // 最近一次模型动作序列（诊断用）
   let aiLastError = '';      // 最近一次错误（不被状态刷新覆盖）
   let aiPendingStart = false; // 用户点了开启但未配置：保存配置后自动开启
 
@@ -318,7 +319,10 @@
     if (!ai.configured) { setAIStatus('未配置 AI · 点击“AI 设置”填写', 'warn'); return; }
     if (!aiMode) { setAIStatus('已配置 · 点击开启托管', 'ok'); return; }
     if (aiBusy) { setAIStatus('AI 思考中…', 'ok'); return; }
-    if (aiLastComment) { setAIStatus('AI：' + aiLastComment, 'ok'); return; }
+    if (aiLastComment) {
+      setAIStatus('AI：' + aiLastComment + (aiLastMoves ? ' ' + aiLastMoves : ''), 'ok');
+      return;
+    }
     setAIStatus('AI 托管中', 'ok');
   }
 
@@ -332,6 +336,7 @@
       aiFailCount = 0;
       aiLastError = '';
       aiLastComment = result.comment || '';
+      aiLastMoves = result.applied.length ? '[' + result.applied.join(', ') + ']' : '';
       if (result.moves.length === 0) {
         aiEmptyCount++;
         if (aiEmptyCount >= 3) {
@@ -348,6 +353,7 @@
     } catch (err) {
       aiFailCount++;
       aiLastError = err && err.message ? err.message : String(err);
+      aiLastMoves = '';
       if (aiFailCount >= 2) {
         aiMode = false; // 连续失败自动停用，避免无脑堆叠
         aiPendingStart = false;
@@ -441,6 +447,7 @@
     aiFailCount = 0;
     aiEmptyCount = 0;
     aiLastComment = '';
+    aiLastMoves = '';
     aiLastError = '';
     if (aiMode) {
       ensureAudio();

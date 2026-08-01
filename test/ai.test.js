@@ -187,3 +187,9 @@ test('decide：返回原始响应片段供诊断', async () => {
   assert.ok(r.raw.includes('"hard"'), 'raw 应包含模型原始输出');
   assert.deepEqual(r.moves, ['hard']);
 });
+test('parseResponse：中文动作名归一化', () => {
+  assert.deepEqual(parseResponse('{"moves":["左移","左移","直落"],"comment":"放左边"}').moves, ['left', 'left', 'hard']);
+  assert.deepEqual(parseResponse('{"moves":["向右","旋转","快速落下"]}').moves, ['right', 'rotate', 'hard']);
+  assert.deepEqual(parseResponse('{"moves":["move left","drop"]}').moves, ['left', 'hard']);
+  assert.deepEqual(parseResponse('{"moves":["左","硬降"]}').moves, ['left', 'hard']);
+});
