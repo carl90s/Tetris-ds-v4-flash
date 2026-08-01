@@ -175,3 +175,15 @@ test('playTurn：决策期间重开游戏，旧回合不作用到新局', async 
   assert.equal(g.status, 'ready', '新局保持未开始状态');
   assert.ok(g.board.every(row => row.every(c => c === 0)), '旧回合不得在棋盘上留方块');
 });
+test('parseResponse：支持纯数组输出', () => {
+  assert.deepEqual(parseResponse('["left","right","hard"]').moves, ['left', 'right', 'hard']);
+  assert.deepEqual(parseResponse('好的，输出：["left","hard"] 完毕').moves, ['left', 'hard']);
+});
+
+test('decide：返回原始响应片段供诊断', async () => {
+  const g = playingGame();
+  const ai = aiWith(mockFetch({ choices: [{ message: { content: '{"moves":["hard"],"comment":"c"}' } }] }));
+  const r = await ai.decide(g);
+  assert.ok(r.raw.includes('"hard"'), 'raw 应包含模型原始输出');
+  assert.deepEqual(r.moves, ['hard']);
+});

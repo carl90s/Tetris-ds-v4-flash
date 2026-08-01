@@ -107,6 +107,8 @@
       '2. 优先旋转到合适朝向，再水平移动到目标列，最后用 "hard" 落底；',
       '3. 如果方块已经在目标位置，直接输出 ["hard"]；',
       '4. 不要输出解释性文字、不要用 Markdown 代码块，只输出 JSON。',
+      '5. 除非方块已经对准目标位置，否则不要直接输出 "hard"——必须先使用 left/right/rotate 把方块调整到目标列和朝向，最后再 "hard"。',
+      '6. 输出中不能包含注释文字、逗号缺失、多余标点等 JSON 语法问题。',
       '策略建议：尽量消行；方块放得越低越好；避免留下难以填补的缝隙；优先把方块放在堆叠较低的一侧。'
     ].join('\n');
   }
@@ -133,6 +135,17 @@
     let obj = null;
     if (first !== -1 && last > first) {
       try { obj = JSON.parse(t.slice(first, last + 1)); } catch (e) { obj = null; }
+    }
+    // 纯数组形式：["left","hard"]
+    if (!obj) {
+      const arrFirst = t.indexOf('[');
+      const arrLast = t.lastIndexOf(']');
+      if (arrFirst !== -1 && arrLast > arrFirst) {
+        try {
+          const arr = JSON.parse(t.slice(arrFirst, arrLast + 1));
+          if (Array.isArray(arr)) obj = { moves: arr };
+        } catch (e) { /* 忽略 */ }
+      }
     }
     if (!obj || !Array.isArray(obj.moves)) return { moves: [], comment: '' };
     const moves = obj.moves
@@ -208,7 +221,7 @@
         ? data.choices[0].message.content
         : '';
       const parsed = parseResponse(content);
-      return parsed;
+      return { moves: parsed.moves, comment: parsed.comment, raw: String(content).slice(0, 120) };
     }
 
     /** 执行一个动作，返回是否生效 */
@@ -230,7 +243,7 @@
      */
     async playTurn(game) {
       const gen = game.generation; // 记录局数：重开/复位后旧回合立即失效
-      const { moves, comment } = await this.decide(game);
+      const { moves, comment, raw } = await this.decide(game);
       const applied = [];
       for (const m of moves) {
         if (game.generation !== gen || game.status !== 'playing' || !game.current) break;
@@ -243,7 +256,7 @@
         game.hardDrop();
         applied.push('hard');
       }
-      return { moves, applied, comment, done: game.status === 'playing' };
+      return { moves, applied, comment, raw, done: game.status === 'playing' };
     }
 
     /** 测试连接：发一条最小请求验证 API 可用 */

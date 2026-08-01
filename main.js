@@ -52,7 +52,10 @@
   let aiMode = false;
   let aiBusy = false;
   let aiFailCount = 0;
+  let aiEmptyCount = 0;      // 连续"未解析出动作"次数
   let aiLastComment = '';
+  let aiLastError = '';      // 最近一次错误（不被状态刷新覆盖）
+  let aiPendingStart = false; // 用户点了开启但未配置：保存配置后自动开启
 
   const BEST_KEY = 'tetris-highscore';
   const SOUND_KEY = 'tetris-sound';
@@ -311,6 +314,7 @@
     els.btnAi.textContent = aiMode ? '🤖 托管中 · 点击停用' : '开启 AI 托管';
     els.btnAi.classList.toggle('on', aiMode);
     els.btnAi.classList.toggle('off', !aiMode);
+    if (aiLastError) { setAIStatus('⚠ ' + aiLastError, 'err'); return; }
     if (!ai.configured) { setAIStatus('未配置 AI · 点击“AI 设置”填写', 'warn'); return; }
     if (!aiMode) { setAIStatus('已配置 · 点击开启托管', 'ok'); return; }
     if (aiBusy) { setAIStatus('AI 思考中…', 'ok'); return; }
@@ -326,14 +330,27 @@
     try {
       const result = await ai.playTurn(game);
       aiFailCount = 0;
+      aiLastError = '';
       aiLastComment = result.comment || '';
+      if (result.moves.length === 0) {
+        aiEmptyCount++;
+        if (aiEmptyCount >= 3) {
+          aiMode = false; // 模型始终不返回有效动作，停用避免无限堆叠
+          aiPendingStart = false;
+          aiLastError = '模型连续 3 次未返回有效动作，已停用托管（请换用支持 JSON 输出的模型）';
+        } else {
+          aiLastError = '模型未返回有效动作（第 ' + aiEmptyCount + ' 次，已自动落底）';
+        }
+        if (result.raw) console.warn('[AI] 未解析出动作，模型原始响应：', result.raw);
+      } else {
+        aiEmptyCount = 0;
+      }
     } catch (err) {
       aiFailCount++;
-      aiLastComment = '';
-      setAIStatus('AI 决策失败：' + (err && err.message ? err.message : err), 'err');
+      aiLastError = err && err.message ? err.message : String(err);
       if (aiFailCount >= 2) {
         aiMode = false; // 连续失败自动停用，避免无脑堆叠
-        setAIStatus('AI 连续失败已停用，请检查设置', 'warn');
+        aiPendingStart = false;
       } else if (game.status === 'playing' && game.current) {
         game.hardDrop(); // 兜底：落底当前方块
       }
@@ -400,18 +417,31 @@
     applyModalToSettings();
     TetrisAI.saveSettings(ai.settings);
     closeAIModal();
+    aiLastError = '';
+    if (aiPendingStart && ai.configured) {
+      aiPendingStart = false; // 用户此前点过“开启 AI 托管”，配置好后直接进入托管
+      aiMode = true;
+      aiFailCount = 0;
+      aiEmptyCount = 0;
+      ensureAudio();
+      if (game.status === 'ready' || game.status === 'over') { startOrRestart(); }
+      else if (game.status === 'paused') { doAction('pause'); }
+    }
     updateAIUI();
   });
 
   els.btnAi.addEventListener('click', () => {
     if (!ai.configured) {
+      aiPendingStart = true; // 记录开启意图：保存配置后自动进入托管
       openAIModal();
-      setAIStatus('请先在设置中配置 API', 'warn');
+      setAIStatus('请先在设置中配置 API，保存后自动开启', 'warn');
       return;
     }
     aiMode = !aiMode;
     aiFailCount = 0;
+    aiEmptyCount = 0;
     aiLastComment = '';
+    aiLastError = '';
     if (aiMode) {
       ensureAudio();
       if (game.status === 'ready' || game.status === 'over') { startOrRestart(); }
