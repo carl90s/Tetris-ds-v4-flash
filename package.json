@@ -1,0 +1,9 @@
+{
+  "name": "tetris",
+  "version": "1.0.0",
+  "private": true,
+  "description": "俄罗斯方块网页游戏（纯 HTML/CSS/JS，无依赖）",
+  "scripts": {
+    "test": "node --test"
+  }
+}

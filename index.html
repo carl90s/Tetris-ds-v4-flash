@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>俄罗斯方块</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧩</text></svg>">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <h1>🧩 俄罗斯方块</h1>
+      <button id="btn-sound" class="icon-btn" title="声音开关" aria-label="声音开关">🔊</button>
+    </header>
+
+    <main class="game-area">
+      <div class="board-wrap">
+        <canvas id="board" width="300" height="600"></canvas>
+        <!-- 覆盖层：开始 / 暂停 / 结束 -->
+        <div id="overlay" class="overlay">
+          <div class="overlay-box">
+            <div id="overlay-title" class="overlay-title">俄罗斯方块</div>
+            <div id="overlay-sub" class="overlay-sub">按下开始按钮或回车键开始游戏</div>
+            <div id="overlay-score" class="overlay-score"></div>
+            <button id="btn-start" class="primary-btn">开始游戏</button>
+            <div class="overlay-hint">
+              <div>← → 移动　↑ / X / Z 旋转　↓ 软降</div>
+              <div>空格 硬降　P 暂停　R 重开　M 声音</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="side-panel">
+        <section class="panel next-panel">
+          <h2>下一个</h2>
+          <canvas id="next" width="120" height="190"></canvas>
+        </section>
+        <section class="panel stats">
+          <div class="stat"><span>分数</span><strong id="stat-score">0</strong></div>
+          <div class="stat"><span>最高分</span><strong id="stat-best">0</strong></div>
+          <div class="stat"><span>等级</span><strong id="stat-level">1</strong></div>
+          <div class="stat"><span>消行</span><strong id="stat-lines">0</strong></div>
+        </section>
+        <section class="panel controls">
+          <button id="btn-pause" class="mini-btn">暂停</button>
+          <button id="btn-restart" class="mini-btn">重新开始</button>
+        </section>
+      </aside>
+    </main>
+
+    <!-- 移动端触控按钮 -->
+    <div class="touch-controls">
+      <div class="touch-row">
+        <button class="touch-btn" data-action="left" aria-label="左移">◀</button>
+        <button class="touch-btn" data-action="rotate" aria-label="旋转">↻</button>
+        <button class="touch-btn" data-action="right" aria-label="右移">▶</button>
+      </div>
+      <div class="touch-row">
+        <button class="touch-btn" data-action="soft" aria-label="软降">▼</button>
+        <button class="touch-btn touch-wide" data-action="hard" aria-label="硬降">⤓ 速降</button>
+        <button class="touch-btn" data-action="pause" aria-label="暂停">⏸</button>
+      </div>
+    </div>
+
+    <footer class="foot">
+      方向键 / 触控按钮操作 · 消行得分，填满即结束
+    </footer>
+  </div>
+
+  <script src="game.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
