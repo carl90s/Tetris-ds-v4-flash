@@ -327,12 +327,12 @@
       return;
     }
     if (aiBusy) { setAIStatus('AI 计算中…', 'ok'); return; }
-    if (aiLastComment) {
-      setAIStatus('AI：' + aiLastComment + (aiLastMoves ? ' ' + aiLastMoves : ''), 'ok');
-      return;
-    }
     if (aiEngine === 'rl' && rlLeft > 0) {
       setAIStatus('自动训练中 · 剩余 ' + rlLeft + ' 局', 'ok');
+      return;
+    }
+    if (aiLastComment) {
+      setAIStatus('AI：' + aiLastComment + (aiLastMoves ? ' ' + aiLastMoves : ''), 'ok');
       return;
     }
     setAIStatus(aiEngine === 'rl' ? '强化学习托管中（已学 ' + rlAgent.episodes + ' 局）' : 'AI 托管中', 'ok');
