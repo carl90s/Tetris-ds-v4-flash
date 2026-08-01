@@ -195,8 +195,8 @@
   /* ============ 强化学习代理（REINFORCE with baseline） ============ */
 
   const RL_STORAGE_KEY = 'tetris-rl-state';
-  /** 初始权重 = 启发式默认（保证冷启动不弱于启发式） */
-  const RL_DEFAULT_W = [760, 1.5, 4, 35, 2, 18];
+  /** 初始权重 = 启发式默认（保证冷启动不弱于启发式），其中洞惩罚加大到 50 */
+  const RL_DEFAULT_W = [760, 1.5, 4, 50, 2, 18];
 
   function lsGet(k) {
     try { return typeof localStorage !== 'undefined' ? localStorage.getItem(k) : null; } catch (e) { return null; }
@@ -287,9 +287,11 @@
      * 鼓励攒多行爆发（1/2/3/4 行 = 50/150/300/500），再减去堆高/洞/最高列的即时代价。
      */
     rewardOf(phi) {
-      const CLEAR_BONUS = [0, 50, 150, 300, 500];
+      // 消行递增奖励更陡：单次 1/2/3/4 行 = 50/200/500/1000（强鼓励攒多行爆发）
+      const CLEAR_BONUS = [0, 50, 200, 500, 1000];
       const clear = Math.min(4, phi.full);
-      return (CLEAR_BONUS[clear] || 0) - phi.aggH * 1.0 - phi.holes * 30 - phi.maxH * 2;
+      // 洞惩罚加大（即时）：每个洞 -60
+      return (CLEAR_BONUS[clear] || 0) - phi.aggH * 1.0 - phi.holes * 60 - phi.maxH * 2;
     }
 
     /**
@@ -344,7 +346,7 @@
       this.w[0] = Math.min(2000, Math.max(200, this.w[0]));
       this.w[1] = Math.min(100, Math.max(1.0, this.w[1]));
       this.w[2] = Math.min(60, Math.max(2.0, this.w[2]));
-      this.w[3] = Math.min(200, Math.max(20, this.w[3]));
+      this.w[3] = Math.min(200, Math.max(25, this.w[3]));
       this.w[4] = Math.min(40, Math.max(1.0, this.w[4]));
       this.w[5] = Math.min(200, Math.max(10, this.w[5]));
       this.steps.push({ phi });
@@ -410,7 +412,7 @@
       this.w[0] = Math.min(2000, Math.max(200, this.w[0]));
       this.w[1] = Math.min(100, Math.max(0.8, this.w[1]));
       this.w[2] = Math.min(60, Math.max(1.5, this.w[2]));
-      this.w[3] = Math.min(200, Math.max(15, this.w[3]));
+      this.w[3] = Math.min(200, Math.max(20, this.w[3]));
       this.w[4] = Math.min(40, Math.max(0.8, this.w[4]));
       this.w[5] = Math.min(200, Math.max(8, this.w[5]));
       this.save();

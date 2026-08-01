@@ -34,11 +34,11 @@ test('enumeratePlacements：空棋盘枚举 40 个候选', () => {
   }
 });
 
-test('RLAgent：初始权重与启发式一致（q 计算）', () => {
+test('RLAgent：初始权重 q 计算正确（洞惩罚加大到 50）', () => {
   const rl = new RLAgent();
   const phi = { full: 1, aggH: 10, maxH: 5, holes: 2, bump: 3, rowTrans: 20 };
   const q = rl.q(phi);
-  const expected = 760 * 1 - 1.5 * 10 - 4 * 5 - 35 * 2 - 2 * 3 - 18 * 20;
+  const expected = 760 * 1 - 1.5 * 10 - 4 * 5 - 50 * 2 - 2 * 3 - 18 * 20;
   assert.ok(Math.abs(q - expected) < 1e-9);
 });
 
@@ -98,10 +98,13 @@ test('RLAgent：rewardOf 消行递增奖励（单次越多越值钱）', () => {
   const rl = new RLAgent();
   const base = { aggH: 0, holes: 0, maxH: 0, bump: 0, rowTrans: 0 };
   assert.equal(rl.rewardOf({ ...base, full: 1 }), 50);
-  assert.equal(rl.rewardOf({ ...base, full: 2 }), 150, '2 行应为 150 而非 100');
-  assert.equal(rl.rewardOf({ ...base, full: 3 }), 300);
-  assert.equal(rl.rewardOf({ ...base, full: 4 }), 500, '4 行应为 500（爆发奖励）');
+  assert.equal(rl.rewardOf({ ...base, full: 2 }), 200, '2 行应为 200（4×1 行）');
+  assert.equal(rl.rewardOf({ ...base, full: 3 }), 500);
+  assert.equal(rl.rewardOf({ ...base, full: 4 }), 1000, '4 行应为 1000（爆发奖励）');
   assert.ok(rl.rewardOf({ ...base, full: 4 }) > 2 * rl.rewardOf({ ...base, full: 2 }), '4 行应远高于 2 个 2 行之和');
+  // 洞惩罚加大：每个洞 -60
+  assert.equal(rl.rewardOf({ ...base, full: 0, holes: 1 }), -60, '1 个洞即时惩罚 -60');
+  assert.equal(rl.rewardOf({ ...base, full: 2, holes: 1 }), 140, '2 行 200 扣 1 洞 60 = 140');
   // 即时代价仍生效
   assert.ok(rl.rewardOf({ ...base, full: 0, aggH: 10 }) < 0, '高堆仍受罚');
 });
