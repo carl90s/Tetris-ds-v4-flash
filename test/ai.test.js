@@ -185,7 +185,7 @@ test('decide：返回原始响应片段供诊断', async () => {
   const ai = aiWith(mockFetch({ choices: [{ message: { content: '{"moves":["hard"],"comment":"c"}' } }] }));
   const r = await ai.decide(g);
   assert.ok(r.raw.includes('"hard"'), 'raw 应包含模型原始输出');
-  assert.deepEqual(r.moves, ['hard']);
+  assert.deepEqual(r.turns[0].moves, ['hard']);
 });
 test('parseResponse：中文动作名归一化', () => {
   assert.deepEqual(parseResponse('{"moves":["左移","左移","直落"],"comment":"放左边"}').moves, ['left', 'left', 'hard']);
@@ -209,7 +209,7 @@ test('decide：请求体包含 response_format 强制 JSON', async () => {
   const ai = aiWith(spyFetch);
   await ai.decide(g);
   assert.deepEqual(capturedBody.response_format, { type: 'json_object' });
-  assert.equal(capturedBody.max_tokens, 2048);
+  assert.equal(capturedBody.max_tokens, 1024);
 });
 test('decide：deepseek-reasoner 不加 response_format', async () => {
   const g = playingGame();
@@ -221,7 +221,7 @@ test('decide：deepseek-reasoner 不加 response_format', async () => {
   const ai = aiWith(spy, { model: 'deepseek-reasoner' });
   await ai.decide(g);
   assert.equal(captured.response_format, undefined, '推理模型不应强制 JSON');
-  assert.equal(captured.max_tokens, 2048);
+  assert.equal(captured.max_tokens, 1024);
 });
 
 test('decide：content 为空时回退 reasoning_content', async () => {
@@ -229,4 +229,31 @@ test('decide：content 为空时回退 reasoning_content', async () => {
   const ai = aiWith(mockFetch({ choices: [{ message: { content: null, reasoning_content: '思考中…… {"moves":["left","hard"]}' } }] }));
   const r = await ai.decide(g);
   assert.ok(r.raw.includes('思考中'), 'raw 应包含 reasoning 内容');
+});
+
+test('parseResponse：批量 turns 格式', () => {
+  const r = parseResponse('{"turns":[{"moves":["left","hard"]},{"moves":["right","rotate","hard"]},{"moves":["hard"]}],"comment":"批量"}');
+  assert.equal(r.turns.length, 3);
+  assert.deepEqual(r.turns[1].moves, ['right', 'rotate', 'hard']);
+  assert.equal(r.comment, '批量');
+});
+
+test('playTurns：一次决策连续放置 3 个方块', async () => {
+  const g = playingGame();
+  const ai = aiWith(mockFetch({ choices: [{ message: { content: '{"turns":[{"moves":["hard"]},{"moves":["left","hard"]},{"moves":["right","hard"]}],"comment":"连放"}' } }] }));
+  const r = await ai.playTurns(g);
+  assert.equal(r.turns.length, 3);
+  assert.deepEqual(r.turns[0].applied, ['hard']);
+  assert.deepEqual(r.turns[1].applied, ['left', 'hard']);
+  assert.deepEqual(r.turns[2].applied, ['right', 'hard']);
+  assert.ok(g.current, '三块放完后续玩');
+});
+
+test('buildUserPrompt：批量包含后续方块信息', () => {
+  const g = playingGame();
+  const p = AI.buildUserPrompt(g);
+  assert.ok(p.includes('方块 1'));
+  assert.ok(p.includes('方块 2'));
+  assert.ok(p.includes('方块 3'));
+  assert.ok(p.includes('turns'));
 });

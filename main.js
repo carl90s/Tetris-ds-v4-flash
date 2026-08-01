@@ -57,6 +57,7 @@
   let aiLastMoves = '';      // 最近一次模型动作序列（诊断用）
   let aiLastError = '';      // 最近一次错误（不被状态刷新覆盖）
   let aiPendingStart = false; // 用户点了开启但未配置：保存配置后自动开启
+  let aiThinkStart = 0;       // AI 回合开始时间（思考计时显示）
 
   const BEST_KEY = 'tetris-highscore';
   const SOUND_KEY = 'tetris-sound';
@@ -318,7 +319,10 @@
     if (aiLastError) { setAIStatus('⚠ ' + aiLastError, 'err'); return; }
     if (!ai.configured) { setAIStatus('未配置 AI · 点击“AI 设置”填写', 'warn'); return; }
     if (!aiMode) { setAIStatus('已配置 · 点击开启托管', 'ok'); return; }
-    if (aiBusy) { setAIStatus('AI 思考中…', 'ok'); return; }
+    if (aiBusy) {
+      setAIStatus('AI 思考中… ' + Math.round((Date.now() - aiThinkStart) / 1000) + 's', 'ok');
+      return;
+    }
     if (aiLastComment) {
       setAIStatus('AI：' + aiLastComment + (aiLastMoves ? ' ' + aiLastMoves : ''), 'ok');
       return;
@@ -329,15 +333,18 @@
   /** AI 回合：决策 → 逐动作放置 → 锁定；每块一次调用 */
   async function launchAITurn() {
     const t0 = Date.now();
+    aiThinkStart = t0;
     aiBusy = true;
     updateAIUI();
     try {
-      const result = await ai.playTurn(game);
+      const result = await ai.playTurns(game);
       aiFailCount = 0;
       aiLastError = '';
       aiLastComment = result.comment || '';
-      aiLastMoves = result.applied.length ? '[' + result.applied.join(', ') + ']' : '';
-      if (result.moves.length === 0) {
+      const first = result.turns[0];
+      aiLastMoves = first && first.applied.length ? '[' + first.applied.join(', ') + ']' : '';
+      const totalMoves = result.turns.reduce((n, t) => n + t.moves.length, 0);
+      if (totalMoves === 0) {
         aiEmptyCount++;
         if (aiEmptyCount >= 3) {
           aiMode = false; // 模型始终不返回有效动作，停用避免无限堆叠
@@ -571,6 +578,13 @@
       if (game.status === 'clearing') sfx.clear(game.clearingRows.length);
     } else {
       updateHUD();
+    }
+    if (aiBusy) {
+      const s = Math.round((Date.now() - aiThinkStart) / 1000);
+      if (s !== loop._thinkSec) {
+        loop._thinkSec = s;
+        setAIStatus('AI 思考中… ' + s + 's', 'ok');
+      }
     }
     if (aiMode && !aiBusy && game.status === 'playing') launchAITurn();
     requestAnimationFrame(loop);

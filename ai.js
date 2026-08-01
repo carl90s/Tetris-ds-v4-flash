@@ -33,7 +33,7 @@
     hard: ['hard', 'drop', '直落', '落底', '落', '放下', '硬降', '快速落下']
   };
   const MAX_MOVES = 20;
-  const REQUEST_TIMEOUT_MS = 20000;
+  const REQUEST_TIMEOUT_MS = 12000;
 
   /** 把模型输出的任意动作写法归一化为标准动作名（最长别名优先，避免“落下”误判） */
   function normalizeMove(m) {
@@ -146,20 +146,51 @@
   }
 
   function buildUserPrompt(game) {
-    return [
+    const SHAPES = game.constructor.SHAPES || {};
+    const COLS = game.constructor.COLS || 10;
+    const BATCH = 3; // 一次请求规划 3 个方块，减少 API 往返
+    const lines = [
       '当前棋盘（.空 #已填）：',
       serializeBoard(game),
       '',
-      '当前方块：' + game.current.type + '，位置 x=' + game.current.x + ', y=' + game.current.y + '，朝向矩阵：',
-      pieceMatrix(game),
-      '',
-      '请输出放置动作。'
-    ].join('\n');
+      '即将连续放置 ' + BATCH + ' 个方块（按顺序）：'
+    ];
+    // 当前方块
+    lines.push('方块 1：' + game.current.type + '，位置 x=' + game.current.x + ', y=' + game.current.y + '，朝向矩阵：');
+    lines.push(pieceMatrix(game));
+    // 后续方块（初始朝向，落点未知）
+    const previews = game.preview();
+    for (let i = 1; i < BATCH; i++) {
+      const type = previews[i - 1];
+      const shape = SHAPES[type];
+      const x = Math.floor((COLS - shape.matrix[0].length) / 2);
+      lines.push('方块 ' + (i + 1) + '：' + type + '，起始位置 x=' + x + ', y=0，初始朝向矩阵：');
+      lines.push(shape.matrix.map(row => row.map(v => (v ? '1' : '0')).join(' ')).join(' | '));
+    }
+    lines.push('');
+    lines.push('请为每个方块分别规划放置动作，输出格式：');
+    lines.push('{"turns":[{"moves":["left","right","rotate","soft","hard"]},{"moves":[...]},{"moves":[...]}],"comment":"一句话说明"}');
+    lines.push('turns 数组长度必须等于 ' + BATCH + '；每个方块的动作中 "hard" 必须是最后一个动作。');
+    return lines.join('\n');
   }
 
   /** 解析模型响应：容忍 ```json 围栏、前后杂文、非法 JSON */
+  function normalizeMovesList(arr) {
+    if (!Array.isArray(arr)) {
+      if (typeof arr === 'string') arr = arr.split(/[,，、;；\s]+/).filter(Boolean);
+      else return [];
+    }
+    const moves = [];
+    for (const m of arr) {
+      if (moves.length >= MAX_MOVES) break;
+      const norm = normalizeMove(m);
+      if (norm) moves.push(norm);
+    }
+    return moves;
+  }
+
   function parseResponse(text) {
-    if (!text || typeof text !== 'string') return { moves: [], comment: '' };
+    if (!text || typeof text !== 'string') return { turns: [], comment: '', moves: [] };
     let t = text.trim();
     t = t.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
     const first = t.indexOf('{');
@@ -179,18 +210,16 @@
         } catch (e) { /* 忽略 */ }
       }
     }
-    // moves 可能是字符串形式：{"moves":"左移, 左移, 直落"}
-    if (obj && !Array.isArray(obj.moves) && typeof obj.moves === 'string') {
-      obj.moves = obj.moves.split(/[,，、;；\s]+/).filter(Boolean);
+    if (!obj) return { turns: [], comment: '', moves: [] };
+    const comment = typeof obj.comment === 'string' ? obj.comment.slice(0, 60) : '';
+    // 批量格式：{"turns":[{"moves":[...]},...]}
+    if (Array.isArray(obj.turns)) {
+      const turns = obj.turns.slice(0, 6).map(turn => ({ moves: normalizeMovesList(turn && turn.moves) }));
+      return { turns, comment, moves: turns.length ? turns[0].moves : [] };
     }
-    if (!obj || !Array.isArray(obj.moves)) return { moves: [], comment: '' };
-    const moves = [];
-    for (const m of obj.moves) {
-      if (moves.length >= MAX_MOVES) break;
-      const norm = normalizeMove(m);
-      if (norm) moves.push(norm);
-    }
-    return { moves, comment: typeof obj.comment === 'string' ? obj.comment.slice(0, 60) : '' };
+    // 单回合格式（兼容）：{"moves":[...]}
+    const moves = normalizeMovesList(obj.moves);
+    return { turns: [{ moves }], comment, moves };
   }
 
   class AIController {
@@ -228,7 +257,7 @@
           { role: 'user', content: buildUserPrompt(game) }
         ],
         temperature: 0.2,
-        max_tokens: 2048, // 推理模型（reasoner）的思维链会占大量 token，需要更大配额
+        max_tokens: 1024, // 对话模型输出较小；reasoner 推理模型可自行调大
         stream: false
       };
       // 强制模型输出合法 JSON；但 deepseek-reasoner 等推理模型不支持 response_format（且思维链占满 token 时输出为空），跳过
@@ -265,7 +294,7 @@
       // 推理模型：最终输出可能在 reasoning_content，content 可能为空
       const content = msg ? (msg.content || msg.reasoning_content || '') : '';
       const parsed = parseResponse(content);
-      return { moves: parsed.moves, comment: parsed.comment, raw: String(content).slice(0, 120) };
+      return { turns: parsed.turns, comment: parsed.comment, raw: String(content).slice(0, 120) };
     }
 
     /** 执行一个动作，返回是否生效 */
@@ -285,22 +314,43 @@
      * 完整回合：决策 → 逐动作执行 → 落底锁定。
      * @returns {Promise<{moves:string[], applied:string[], comment:string, done:boolean}>}
      */
-    async playTurn(game) {
+    async playTurns(game) {
       const gen = game.generation; // 记录局数：重开/复位后旧回合立即失效
-      const { moves, comment, raw } = await this.decide(game);
-      const applied = [];
-      for (const m of moves) {
+      const { turns, comment, raw } = await this.decide(game);
+      const executed = [];
+      if (turns.length === 0) {
+        // 模型未返回任何有效回合：兜底落底当前方块，避免卡住
+        if (game.generation === gen && game.status === 'playing' && game.current) {
+          game.hardDrop();
+          executed.push({ moves: [], applied: ['hard'] });
+        }
+        return { turns: executed, comment, raw, done: game.status === 'playing' };
+      }
+      for (const turn of turns) {
         if (game.generation !== gen || game.status !== 'playing' || !game.current) break;
-        if (this.applyMove(game, m)) applied.push(m);
-        if (m === 'hard') break; // 已锁定，本回合结束
-        if (this.settings.moveDelay > 0) await sleep(this.settings.moveDelay);
+        const applied = [];
+        for (const m of turn.moves) {
+          if (game.generation !== gen || game.status !== 'playing' || !game.current) break;
+          if (this.applyMove(game, m)) applied.push(m);
+          if (m === 'hard') break; // 已锁定，本段结束
+          if (this.settings.moveDelay > 0) await sleep(this.settings.moveDelay);
+        }
+        // 兜底：动作用尽但方块仍在空中 → 硬降锁定（本段已 hard 过则跳过）
+        if (game.generation === gen && game.status === 'playing' && game.current && !applied.includes('hard')) {
+          game.hardDrop();
+          applied.push('hard');
+        }
+        executed.push({ moves: turn.moves, applied });
+        if (game.status !== 'playing') break; // 消行动画/结束：交由主循环推进
       }
-      // 兜底：动作用尽但方块仍在空中 → 硬降锁定（本回合已 hard 过则跳过）
-      if (game.generation === gen && game.status === 'playing' && game.current && !applied.includes('hard')) {
-        game.hardDrop();
-        applied.push('hard');
-      }
-      return { moves, applied, comment, raw, done: game.status === 'playing' };
+      return { turns: executed, comment, raw, done: game.status === 'playing' };
+    }
+
+    /** 单回合（兼容旧接口，取批量结果第一段） */
+    async playTurn(game) {
+      const r = await this.playTurns(game);
+      const first = r.turns[0] || { moves: [], applied: [] };
+      return { moves: first.moves, applied: first.applied, comment: r.comment, raw: r.raw, done: r.done };
     }
 
     /** 测试连接：发一条最小请求验证 API 可用 */

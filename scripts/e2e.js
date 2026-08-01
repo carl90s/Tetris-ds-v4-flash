@@ -170,7 +170,13 @@ const EDGE = [
   await fpage.$eval('#ai-apikey', el => { el.value = 'sk-e2e-mock'; el.dispatchEvent(new Event('input')); });
   await fpage.$eval('#ai-model', el => { el.value = 'mock-model'; el.dispatchEvent(new Event('input')); });
   await fpage.$eval('#ai-save', el => el.click()); // 自动开启
-  await new Promise(r => setTimeout(r, 1500)); // 连续失败 2 次后自动停用
+  // 轮询等待错误出现（避免固定等待的竞态）
+  const fDeadline = Date.now() + 5000;
+  while (Date.now() < fDeadline) {
+    await new Promise(r => setTimeout(r, 250));
+    const st = await fpage.$eval('#ai-status', el => el.textContent);
+    if (st.includes('⚠') || st.includes('失败')) break;
+  } // 连续失败 2 次后自动停用
   out.faultStatusText = await fpage.$eval('#ai-status', el => el.textContent);
   out.faultStopped = await fpage.$eval('#btn-ai', el => !el.classList.contains('on'));
   out.faultErrorVisible = out.faultStatusText.includes('失败') || out.faultStatusText.includes('⚠');
