@@ -94,3 +94,14 @@ test('RLAgent：matricesEqual 判断矩阵形状', () => {
   assert.ok(!RLAgent.matricesEqual(a, c));
   assert.ok(!RLAgent.matricesEqual(a, null));
 });
+test('RLAgent：rewardOf 消行递增奖励（单次越多越值钱）', () => {
+  const rl = new RLAgent();
+  const base = { aggH: 0, holes: 0, maxH: 0, bump: 0, rowTrans: 0 };
+  assert.equal(rl.rewardOf({ ...base, full: 1 }), 50);
+  assert.equal(rl.rewardOf({ ...base, full: 2 }), 150, '2 行应为 150 而非 100');
+  assert.equal(rl.rewardOf({ ...base, full: 3 }), 300);
+  assert.equal(rl.rewardOf({ ...base, full: 4 }), 500, '4 行应为 500（爆发奖励）');
+  assert.ok(rl.rewardOf({ ...base, full: 4 }) > 2 * rl.rewardOf({ ...base, full: 2 }), '4 行应远高于 2 个 2 行之和');
+  // 即时代价仍生效
+  assert.ok(rl.rewardOf({ ...base, full: 0, aggH: 10 }) < 0, '高堆仍受罚');
+});

@@ -283,13 +283,23 @@
     }
 
     /**
+     * 即时奖励（TD 用）：消行递增奖励——单次消的行数越多，每行越值钱，
+     * 鼓励攒多行爆发（1/2/3/4 行 = 50/150/300/500），再减去堆高/洞/最高列的即时代价。
+     */
+    rewardOf(phi) {
+      const CLEAR_BONUS = [0, 50, 150, 300, 500];
+      const clear = Math.min(4, phi.full);
+      return (CLEAR_BONUS[clear] || 0) - phi.aggH * 1.0 - phi.holes * 30 - phi.maxH * 2;
+    }
+
+    /**
      * TD(0) 步级学习：放置完成后调用。
      * @param {Object} phi 本步所选落点的特征（放置后棋盘）
      * @param {Object} game 当前游戏（已放置并生成新方块）
      */
     observe(phi, game) {
-      // 即时奖励：消行收益 - 堆高/洞的即时代价（防止 TD 只认消行、奖励黑客）
-      const reward = phi.full * 50 - phi.aggH * 1.0 - phi.holes * 30 - phi.maxH * 2;
+      // 即时奖励：消行递增收益 - 堆高/洞的即时代价（防止 TD 只认消行、奖励黑客）
+      const reward = this.rewardOf(phi);
       this.episodeReward += reward;
       // 下一状态价值：新棋盘上下一方块（当前方块）的最优 Q
       const nCands = enumeratePlacements(game);
