@@ -32,34 +32,14 @@
     btnRestart: $('btn-restart'),
     btnSound: $('btn-sound'),
     btnAi: $('btn-ai'),
-    btnAiSettings: $('btn-ai-settings'),
-    aiStatus: $('ai-status'),
-    aiModal: $('ai-modal'),
-    aiProvider: $('ai-provider'),
-    aiBaseUrl: $('ai-baseurl'),
-    aiApiKey: $('ai-apikey'),
-    aiModel: $('ai-model'),
-    aiDelay: $('ai-delay'),
-    aiDelayVal: $('ai-delay-val'),
-    aiBatch: $('ai-batch'),
-    aiEngine: $('ai-engine'),
-    aiMsg: $('ai-msg'),
-    aiTest: $('ai-test'),
-    aiSave: $('ai-save'),
-    aiCancel: $('ai-cancel')
+    aiStatus: $('ai-status')
   };
 
   /* ---------- AI 托管状态 ---------- */
-  const ai = new TetrisAI.AIController();
   let aiMode = false;
   let aiBusy = false;
-  let aiFailCount = 0;
-  let aiEmptyCount = 0;      // 连续"未解析出动作"次数
   let aiLastComment = '';
-  let aiLastMoves = '';      // 最近一次模型动作序列（诊断用）
-  let aiLastError = '';      // 最近一次错误（不被状态刷新覆盖）
-  let aiPendingStart = false; // 用户点了开启但未配置：保存配置后自动开启
-  let aiThinkStart = 0;       // AI 回合开始时间（思考计时显示）
+  let aiLastMoves = '';
 
   const BEST_KEY = 'tetris-highscore';
   const SOUND_KEY = 'tetris-sound';
@@ -318,16 +298,8 @@
     els.btnAi.textContent = aiMode ? '🤖 托管中 · 点击停用' : '开启 AI 托管';
     els.btnAi.classList.toggle('on', aiMode);
     els.btnAi.classList.toggle('off', !aiMode);
-    if (aiLastError) { setAIStatus('⚠ ' + aiLastError, 'err'); return; }
-    if (ai.settings.engine === 'llm' && !ai.configured) { setAIStatus('未配置大模型 · 点击“AI 设置”填写', 'warn'); return; }
-    if (!aiMode) {
-      setAIStatus(ai.settings.engine === 'algorithm' ? '内置算法就绪 · 点击开启托管' : '已配置 · 点击开启托管', 'ok');
-      return;
-    }
-    if (aiBusy) {
-      setAIStatus('AI 思考中… ' + Math.round((Date.now() - aiThinkStart) / 1000) + 's', 'ok');
-      return;
-    }
+    if (!aiMode) { setAIStatus('内置算法就绪 · 点击开启托管', 'ok'); return; }
+    if (aiBusy) { setAIStatus('AI 计算中…', 'ok'); return; }
     if (aiLastComment) {
       setAIStatus('AI：' + aiLastComment + (aiLastMoves ? ' ' + aiLastMoves : ''), 'ok');
       return;
@@ -335,71 +307,33 @@
     setAIStatus('AI 托管中', 'ok');
   }
 
-  /** AI 回合：决策 → 逐动作放置 → 锁定；每块一次调用 */
+  /** AI 回合：算法决策 → 旋转/移动/落底锁定 */
   async function launchAITurn() {
     const t0 = Date.now();
-    aiThinkStart = t0;
     aiBusy = true;
     updateAIUI();
     try {
-      if (ai.settings.engine === 'algorithm') {
-        // ==== 内置算法引擎：毫秒级、零成本、会消行 ====
-        aiFailCount = 0;
-        aiEmptyCount = 0;
-        aiLastError = '';
-        aiLastComment = '内置算法';
-        const plan = TetrisAI.planBestPlacement(game);
-        if (plan && game.status === 'playing') {
-          for (let i = 0; i < plan.rot && game.status === 'playing' && game.current; i++) game.rotate(1);
-          const COLS = game.constructor.COLS || 10;
-          const target = Math.min(COLS - 1, Math.max(0, plan.col));
-          let guard = 0;
-          while (game.status === 'playing' && game.current && game.current.x < target && guard++ < 12) game.tryMove(1, 0);
-          while (game.status === 'playing' && game.current && game.current.x > target && guard++ < 12) game.tryMove(-1, 0);
-          if (game.status === 'playing' && game.current) {
-            game.hardDrop();
-            aiLastMoves = '落点 第' + plan.col + '列 × 旋转' + plan.rot;
-          }
-        } else if (game.status === 'playing' && game.current) {
+      aiLastComment = '内置算法';
+      const plan = TetrisAI.planBestPlacement(game);
+      if (plan && game.status === 'playing') {
+        for (let i = 0; i < plan.rot && game.status === 'playing' && game.current; i++) game.rotate(1);
+        const COLS = game.constructor.COLS || 10;
+        const target = Math.min(COLS - 1, Math.max(0, plan.col));
+        let guard = 0;
+        while (game.status === 'playing' && game.current && game.current.x < target && guard++ < 12) game.tryMove(1, 0);
+        while (game.status === 'playing' && game.current && game.current.x > target && guard++ < 12) game.tryMove(-1, 0);
+        if (game.status === 'playing' && game.current) {
           game.hardDrop();
-          aiLastMoves = '无安全落点，直落';
+          aiLastMoves = '落点 第' + plan.col + '列 × 旋转' + plan.rot;
         }
-      } else {
-        // ==== 大模型引擎 ====
-        const result = await ai.playTurns(game);
-        aiFailCount = 0;
-        aiLastError = '';
-        aiLastComment = result.comment || '';
-        const first = result.turns[0];
-        aiLastMoves = first && first.applied.length ? '[' + first.applied.join(', ') + ']' : '';
-        const totalMoves = result.turns.reduce((n, t) => n + (typeof t.col === 'number' ? 1 : t.moves.length), 0);
-        if (totalMoves === 0) {
-          aiEmptyCount++;
-          if (aiEmptyCount >= 3) {
-            aiMode = false; // 模型始终不返回有效动作，停用避免无限堆叠
-            aiPendingStart = false;
-            const rawInfo = result.raw ? ('模型回复：' + result.raw.slice(0, 60) + '…') : ('模型回复为空（可能是推理模型或输出超时，建议改用 deepseek-v4-flash）');
-            aiLastError = '模型连续 3 次未返回有效动作，已停用托管。' + rawInfo;
-          } else {
-            aiLastError = '模型未返回有效动作（第 ' + aiEmptyCount + ' 次）' + (result.raw ? '，回复：' + result.raw.slice(0, 40) : '（回复为空）');
-          }
-          if (result.raw) console.warn('[AI] 未解析出动作，模型原始响应：', result.raw);
-        } else {
-          aiEmptyCount = 0;
-        }
+      } else if (game.status === 'playing' && game.current) {
+        game.hardDrop();
+        aiLastMoves = '无安全落点，直落';
       }
     } catch (err) {
-      aiFailCount++;
-      aiLastError = err && err.message ? err.message : String(err);
       aiLastMoves = '';
-      if (aiFailCount >= 2) {
-        aiMode = false; // 连续失败自动停用，避免无脑堆叠
-        aiPendingStart = false;
-      } else if (game.status === 'playing' && game.current) {
-        game.hardDrop(); // 兜底：落底当前方块
-      }
     } finally {
-      // 最小回合间隔：保证“AI 思考中”可见、节奏可跟（快速模型也不会瞬移堆叠）
+      // 最小回合间隔：保证节奏可跟、动画可见
       const el = Date.now() - t0;
       if (el < 250) await sleep(250 - el);
       aiBusy = false;
@@ -409,88 +343,10 @@
 
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-  /* ---------- AI 设置弹窗 ---------- */
-  function openAIModal() {
-    const p = TetrisAI.PROVIDERS;
-    els.aiProvider.value = ai.settings.provider in p ? ai.settings.provider : 'custom';
-    els.aiBaseUrl.value = ai.settings.baseUrl || '';
-    els.aiApiKey.value = ai.settings.apiKey || '';
-    els.aiModel.value = ai.settings.model || '';
-    els.aiDelay.value = ai.settings.moveDelay;
-    els.aiDelayVal.textContent = ai.settings.moveDelay;
-    els.aiBatch.checked = ai.settings.batchSize !== 1;
-    els.aiEngine.value = ai.settings.engine || 'algorithm';
-    els.aiMsg.textContent = '';
-    els.aiMsg.className = 'ai-msg';
-    els.aiModal.classList.remove('hidden');
-  }
-
-  function closeAIModal() {
-    els.aiModal.classList.add('hidden');
-  }
-
-  function applyModalToSettings() {
-    ai.settings.provider = els.aiProvider.value;
-    ai.settings.baseUrl = els.aiBaseUrl.value.trim();
-    ai.settings.apiKey = els.aiApiKey.value.trim();
-    ai.settings.model = els.aiModel.value.trim();
-    ai.settings.moveDelay = parseInt(els.aiDelay.value, 10) || 60;
-    els.aiDelayVal.textContent = ai.settings.moveDelay;
-    ai.settings.batchSize = els.aiBatch.checked ? 3 : 1;
-    ai.settings.engine = els.aiEngine.value === 'llm' ? 'llm' : 'algorithm';
-  }
-
-  els.btnAiSettings.addEventListener('click', openAIModal);
-  els.aiCancel.addEventListener('click', closeAIModal);
-  els.aiModal.addEventListener('click', (e) => { if (e.target === els.aiModal) closeAIModal(); });
-  els.aiProvider.addEventListener('change', () => {
-    const p = TetrisAI.PROVIDERS[els.aiProvider.value];
-    if (p && els.aiProvider.value !== 'custom') {
-      els.aiBaseUrl.value = p.baseUrl;
-      els.aiModel.value = p.model;
-    }
-  });
-  els.aiDelay.addEventListener('input', () => { els.aiDelayVal.textContent = els.aiDelay.value; });
-
-  els.aiTest.addEventListener('click', async () => {
-    applyModalToSettings();
-    els.aiMsg.textContent = '测试中…';
-    els.aiMsg.className = 'ai-msg';
-    const r = await ai.testConnection();
-    els.aiMsg.textContent = r.message;
-    els.aiMsg.className = 'ai-msg ' + (r.ok ? 'ok' : 'err');
-  });
-
-  els.aiSave.addEventListener('click', () => {
-    applyModalToSettings();
-    TetrisAI.saveSettings(ai.settings);
-    closeAIModal();
-    aiLastError = '';
-    if (aiPendingStart && ai.configured) {
-      aiPendingStart = false; // 用户此前点过“开启 AI 托管”，配置好后直接进入托管
-      aiMode = true;
-      aiFailCount = 0;
-      aiEmptyCount = 0;
-      ensureAudio();
-      if (game.status === 'ready' || game.status === 'over') { startOrRestart(); }
-      else if (game.status === 'paused') { doAction('pause'); }
-    }
-    updateAIUI();
-  });
-
   els.btnAi.addEventListener('click', () => {
-    if (ai.settings.engine === 'llm' && !ai.configured) {
-      aiPendingStart = true; // 记录开启意图：保存配置后自动进入托管
-      openAIModal();
-      setAIStatus('请先配置大模型 API（或在 AI 设置切换为“内置算法”）', 'warn');
-      return;
-    }
     aiMode = !aiMode;
-    aiFailCount = 0;
-    aiEmptyCount = 0;
     aiLastComment = '';
     aiLastMoves = '';
-    aiLastError = '';
     if (aiMode) {
       ensureAudio();
       if (game.status === 'ready' || game.status === 'over') { startOrRestart(); }
@@ -538,7 +394,6 @@
     }
     if (code === 'KeyM') { toggleSound(); return; }
     if (code === 'KeyR') { startOrRestart(); return; }
-    if (code === 'Escape' && !els.aiModal.classList.contains('hidden')) { closeAIModal(); return; }
     if (code === 'KeyP' || code === 'Escape') { doAction('pause'); return; }
 
     if (!game.interactive) return;
@@ -612,13 +467,6 @@
       if (game.status === 'clearing') sfx.clear(game.clearingRows.length);
     } else {
       updateHUD();
-    }
-    if (aiBusy) {
-      const s = Math.round((Date.now() - aiThinkStart) / 1000);
-      if (s !== loop._thinkSec) {
-        loop._thinkSec = s;
-        setAIStatus('AI 思考中… ' + s + 's', 'ok');
-      }
     }
     if (aiMode && !aiBusy && game.status === 'playing') launchAITurn();
     requestAnimationFrame(loop);

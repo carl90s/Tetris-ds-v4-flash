@@ -49,51 +49,12 @@
         </section>
         <section class="panel ai-panel">
           <h2>🤖 AI 托管</h2>
-          <div class="ai-row">
-            <button id="btn-ai" class="ai-toggle off">开启 AI 托管</button>
-            <button id="btn-ai-settings" class="mini-btn">AI 设置</button>
-          </div>
-          <div id="ai-status" class="ai-status">未配置</div>
+          <button id="btn-ai" class="ai-toggle off">开启 AI 托管</button>
+          <div id="ai-status" class="ai-status">内置算法就绪 · 点击开启托管</div>
         </section>
       </aside>
     </main>
 
-    <!-- AI 设置弹窗 -->
-    <div id="ai-modal" class="modal hidden">
-      <div class="modal-box">
-        <h3>🤖 AI 设置</h3>
-        <div class="field">
-          <label for="ai-engine">AI 引擎</label>
-          <select id="ai-engine">
-            <option value="algorithm">内置算法（推荐，会消行、免配置）</option>
-            <option value="llm">大模型托管（DeepSeek 等）</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="ai-provider">服务商</label>
-          <select id="ai-provider">
-            <option value="deepseek">DeepSeek</option>
-            <option value="openai">OpenAI</option>
-            <option value="qwen">通义千问</option>
-            <option value="ollama">Ollama 本地</option>
-            <option value="custom">自定义</option>
-          </select>
-        </div>
-        <div class="field"><label for="ai-baseurl">API 地址</label><input id="ai-baseurl" type="url" placeholder="https://api.example.com/v1" spellcheck="false"></div>
-        <div class="field"><label for="ai-apikey">API Key</label><input id="ai-apikey" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false"></div>
-        <p class="ai-note">API Key 仅保存在本机浏览器，请勿在公共或共享电脑上保存。</p>
-        <div class="field"><label for="ai-model">模型名称</label><input id="ai-model" placeholder="model-name" spellcheck="false"></div>
-        <div class="field"><label for="ai-delay">动作间隔 <span id="ai-delay-val">60</span>ms</label><input id="ai-delay" type="range" min="10" max="200" step="10" value="60"></div>
-        <div class="field ai-check"><label><input type="checkbox" id="ai-batch" checked> 批量决策（一次规划 3 个方块，更快；如模型输出异常请关闭）</label></div>
-        <div id="ai-msg" class="ai-msg"></div>
-        <div class="modal-actions">
-          <button id="ai-test" class="mini-btn">测试连接</button>
-          <span class="spacer"></span>
-          <button id="ai-cancel" class="mini-btn">取消</button>
-          <button id="ai-save" class="primary-btn small">保存</button>
-        </div>
-      </div>
-    </div>
     <!-- 移动端触控按钮 -->
     <div class="touch-controls">
       <div class="touch-row">

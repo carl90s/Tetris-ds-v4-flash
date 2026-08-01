@@ -78,117 +78,6 @@ const EDGE = [
   await mpage.tap('.touch-btn[data-action="rotate"]');
   await new Promise(r => setTimeout(r, 200));
 
-  // ---- AI 托管流程（拦截 /chat/completions，mock 模型响应） ----
-  const apage = await browser.newPage();
-  apage.on('pageerror', e => errors.push('[ai pageerror] ' + e.message));
-  await apage.setRequestInterception(true);
-  let aiCalls = 0;
-  const CORS = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'authorization, content-type'
-  };
-  apage.on('request', req => {
-    if (req.url().includes('/chat/completions')) {
-      aiCalls++;
-      if (req.method() === 'OPTIONS') {
-        req.respond({ status: 204, headers: CORS });
-      } else {
-        req.respond({
-          status: 200,
-          contentType: 'application/json',
-          headers: CORS,
-          body: JSON.stringify({ choices: [{ message: { content: '{"moves":["hard"],"comment":"e2e 放置"}' } }] })
-        });
-      }
-    } else {
-      req.continue();
-    }
-  });
-  await apage.goto('http://localhost:8901/index.html', { waitUntil: 'networkidle0' });
-  await new Promise(r => setTimeout(r, 400));
-
-  // 打开 AI 设置弹窗（切到大模型引擎 + 填 mock 配置）
-  await apage.$eval('#btn-ai-settings', el => el.click());
-  await new Promise(r => setTimeout(r, 200));
-  out.aiModalShown = await apage.$eval('#ai-modal', el => !el.classList.contains('hidden'));
-  // 直接赋值（type() 会追加到预填值之后，污染配置）
-  await apage.$eval('#ai-baseurl', el => { el.value = 'https://api.mock.local/v1'; el.dispatchEvent(new Event('input')); });
-  await apage.$eval('#ai-apikey', el => { el.value = 'sk-e2e-mock'; el.dispatchEvent(new Event('input')); });
-  await apage.$eval('#ai-model', el => { el.value = 'mock-model'; el.dispatchEvent(new Event('input')); });
-  await apage.$eval('#ai-engine', el => { el.value = 'llm'; el.dispatchEvent(new Event('change')); });
-  // 放慢动作间隔，配合最小回合间隔，避免 mock 零延迟导致快速堆满
-  await apage.evaluate(() => {
-    const d = document.getElementById('ai-delay');
-    d.value = 200;
-    d.dispatchEvent(new Event('input'));
-  });
-  await apage.click('#ai-save');
-  await new Promise(r => setTimeout(r, 200));
-  out.aiModalClosed = await apage.$eval('#ai-modal', el => el.classList.contains('hidden'));
-  // 引擎已切到 llm 且配置完成，点“开启 AI 托管”启动大模型托管
-  await apage.$eval('#btn-ai', el => el.click());
-  await new Promise(r => setTimeout(r, 200));
-  out.aiAutoStarted = await apage.$eval('#btn-ai', el => el.classList.contains('on'));
-  // 等 AI 放置约 3 个方块后立即停用（mock 为无脑 hard，长时间运行会堆满棋盘）
-  const aiDeadline = Date.now() + 5000;
-  while (Date.now() < aiDeadline) {
-    await new Promise(r => setTimeout(r, 150));
-    const sc = await apage.$eval('#stat-score', el => Number(el.textContent));
-    if (sc >= 50) break;
-  }
-  out.aiModeOn = await apage.$eval('#btn-ai', el => el.classList.contains('on'));
-  out.aiScore = await apage.$eval('#stat-score', el => Number(el.textContent));
-  out.aiStatusText = await apage.$eval('#ai-status', el => el.textContent);
-  out.aiCalls = aiCalls;
-  out.aiPlacementWorks = out.aiScore > 0;
-
-  // 停用 AI：玩家键盘恢复
-  await apage.$eval('#btn-ai', el => el.click());
-  await new Promise(r => setTimeout(r, 200));
-  out.aiModeOff = await apage.$eval('#btn-ai', el => el.classList.contains('on') === false);
-  await apage.keyboard.press('ArrowRight'); // 停用后键盘应恢复控制
-  await apage.keyboard.press('Space');
-  await new Promise(r => setTimeout(r, 300));
-  out.aiScoreAfterManual = await apage.$eval('#stat-score', el => Number(el.textContent));
-  out.manualAfterAIWorks = out.aiScoreAfterManual > out.aiScore;
-  // ---- AI 故障场景：API 500 → 错误信息显示且不被覆盖、自动停用 ----
-  // 独立 browser context：与 apage 隔离 localStorage，避免共享配置干扰
-  const fcontext = await browser.createBrowserContext();
-  const fpage = await fcontext.newPage();
-  fpage.on('pageerror', e => errors.push('[fault pageerror] ' + e.message));
-  await fpage.setRequestInterception(true);
-  fpage.on('request', req => {
-    if (req.url().includes('/chat/completions')) {
-      if (req.method() === 'OPTIONS') req.respond({ status: 204, headers: CORS });
-      else req.respond({ status: 500, headers: CORS, contentType: 'application/json', body: '{"error":"boom"}' });
-    } else {
-      req.continue();
-    }
-  });
-  await fpage.goto('http://localhost:8901/index.html', { waitUntil: 'networkidle0' });
-  await new Promise(r => setTimeout(r, 400));
-  // Puppeteer 坐标点击在该布局下偶发失败，统一用 DOM click 触发（功能等价）
-  await fpage.$eval('#btn-ai-settings', el => el.click()); // 打开设置弹窗
-  await new Promise(r => setTimeout(r, 200));
-  await fpage.$eval('#ai-baseurl', el => { el.value = 'https://api.mock.local/v1'; el.dispatchEvent(new Event('input')); });
-  await fpage.$eval('#ai-apikey', el => { el.value = 'sk-e2e-mock'; el.dispatchEvent(new Event('input')); });
-  await fpage.$eval('#ai-model', el => { el.value = 'mock-model'; el.dispatchEvent(new Event('input')); });
-  await fpage.$eval('#ai-engine', el => { el.value = 'llm'; el.dispatchEvent(new Event('change')); });
-  await fpage.$eval('#ai-save', el => el.click());
-  await new Promise(r => setTimeout(r, 200));
-  await fpage.$eval('#btn-ai', el => el.click()); // 开启大模型托管 → 请求 500 → 失败停用
-  // 轮询等待错误出现（避免固定等待的竞态）
-  const fDeadline = Date.now() + 5000;
-  while (Date.now() < fDeadline) {
-    await new Promise(r => setTimeout(r, 250));
-    const st = await fpage.$eval('#ai-status', el => el.textContent);
-    const fBtnOn = await fpage.$eval('#btn-ai', el => el.classList.contains('on'));
-    if ((st.includes('⚠') || st.includes('失败')) && !fBtnOn) break;
-  } // 连续失败 2 次后自动停用
-  out.faultStatusText = await fpage.$eval('#ai-status', el => el.textContent);
-  out.faultStopped = await fpage.$eval('#btn-ai', el => !el.classList.contains('on'));
-  out.faultErrorVisible = out.faultStatusText.includes('失败') || out.faultStatusText.includes('⚠');
 
   // ---- 内置算法引擎：免配置直接开启并自动玩 ----
   const actx = await browser.createBrowserContext();
@@ -217,15 +106,6 @@ const EDGE = [
     || !out.touchControlsVisible
     || out.touchButtonsMobile < 6
     || out.scoreAfterTouchHard <= 0
-    || !out.algoWorks
-    || !out.aiModalShown
-    || !out.aiModalClosed
-    || !out.aiAutoStarted
-    || !out.aiModeOn
-    || !out.faultStopped
-    || !out.faultErrorVisible
-    || !out.aiPlacementWorks
-    || !out.aiModeOff
-    || !out.manualAfterAIWorks;
+    || !out.algoWorks;
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error('E2E FAILED:', e); process.exit(1); });
