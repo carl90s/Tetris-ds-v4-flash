@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const TetrisGame = require('../game.js');
 const AI = require('../ai.js');
 const { RLAgent, enumeratePlacements } = AI;
-const { SHAPES } = TetrisGame;
+const { SHAPES, COLS } = TetrisGame;
 
 function playingGame() {
   const g = new TetrisGame();
@@ -129,4 +129,30 @@ test('RLAgent：observe 使用 3 步未来价值后权重仍有限', () => {
   }
   assert.ok(rl.w.every(v => Number.isFinite(v)), '权重应保持有限');
   assert.ok(rl.steps.length === 10);
+});
+test('RLAgent：决策 Q 的消行因子非线性（4 行 = 20 倍 1 行）', () => {
+  const rl = new RLAgent();
+  const base = { aggH: 0, maxH: 0, holes: 0, bump: 0, rowTrans: 0 };
+  const q1 = rl.q({ ...base, full: 1 });
+  const q2 = rl.q({ ...base, full: 2 });
+  const q4 = rl.q({ ...base, full: 4 });
+  assert.ok(q4 > 10 * q1, '4 行 Q 应远大于 1 行（' + q4 + ' vs ' + q1 + '）');
+  assert.ok(q2 > 2 * q1, '2 行 Q 应超过 2 个 1 行');
+});
+
+test('RLAgent：有 I 竖放消 4 行机会时优先竖放', () => {
+  const rl = new RLAgent();
+  const g = playingGame();
+  // 16~19 行除第 5 列外全满（竖井），竖 I 放入可消 4 行
+  for (let r = 16; r <= 19; r++) {
+    g.board[r] = Array(COLS).fill('#x').map((v, c) => (c === 5 ? 0 : v));
+  }
+  g.current = { type: 'I', matrix: SHAPES.I.matrix.map(r => r.slice()), color: SHAPES.I.color, x: 3, y: 0 };
+  g.updateGhost();
+  const plan = rl.decide(g);
+  assert.ok(plan, '应有落点');
+  const cands = AI.enumeratePlacements(g);
+  const chosen = cands.find(c => c.rot === plan.rot && c.col === plan.col);
+  assert.ok(chosen, '选中候选应存在');
+  assert.equal(chosen.phi.full, 4, '应选择能消 4 行的竖放落点（实际 ' + chosen.phi.full + '）');
 });

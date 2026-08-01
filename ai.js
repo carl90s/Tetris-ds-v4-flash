@@ -198,6 +198,17 @@
   /** 初始权重 = 启发式默认（保证冷启动不弱于启发式），其中洞惩罚加大到 50 */
   const RL_DEFAULT_W = [760, 1.5, 4, 50, 2, 18];
 
+  /** 消行奖励表（rewardOf 用）：单次 1/2/3/4 行 = 50/200/500/1000 */
+  const CLEAR_BONUS = [0, 50, 200, 500, 1000];
+
+  /**
+   * 消行决策因子：把 full 特征变换为与奖励一致的递增曲线（1/4/10/20 倍）。
+   * 让决策 Q 与非线性奖励对齐——4 行的诱惑是 1 行的 20 倍，AI 才愿意攒竖放消四连。
+   */
+  function clearFactor(full) {
+    return (CLEAR_BONUS[Math.min(4, full)] || 0) / 50;
+  }
+
   function lsGet(k) {
     try { return typeof localStorage !== 'undefined' ? localStorage.getItem(k) : null; } catch (e) { return null; }
   }
@@ -241,9 +252,9 @@
       this.episodeReward = 0;
     }
 
-    /** 价值：Q = w·phi（full 正向，其余惩罚项负向） */
+    /** 价值：Q = w·phi（full 用递增因子，其余惩罚项负向） */
     q(phi) {
-      return phi.full * this.w[0]
+      return clearFactor(phi.full) * this.w[0]
         - phi.aggH * this.w[1]
         - phi.maxH * this.w[2]
         - phi.holes * this.w[3]
@@ -288,7 +299,6 @@
      */
     rewardOf(phi) {
       // 消行递增奖励更陡：单次 1/2/3/4 行 = 50/200/500/1000（强鼓励攒多行爆发）
-      const CLEAR_BONUS = [0, 50, 200, 500, 1000];
       const clear = Math.min(4, phi.full);
       // 洞惩罚加大（即时）：每个洞 -60
       return (CLEAR_BONUS[clear] || 0) - phi.aggH * 1.0 - phi.holes * 60 - phi.maxH * 2;
@@ -336,7 +346,7 @@
       const future = this.futureValue(game, 3);
       const qPrev = this.q(phi);
       const delta = reward + future - qPrev;
-      this.w[0] += this.alpha * delta * phi.full;
+      this.w[0] += this.alpha * delta * clearFactor(phi.full);
       this.w[1] += this.alpha * delta * (-phi.aggH);
       this.w[2] += this.alpha * delta * (-phi.maxH);
       this.w[3] += this.alpha * delta * (-phi.holes);
@@ -398,7 +408,7 @@
         const diff = qH - this.q(c.phi);
         if (diff < margin) {
           const f = this.alpha * (margin - diff);
-          this.w[0] += f * (human.phi.full - c.phi.full);
+          this.w[0] += f * (clearFactor(human.phi.full) - clearFactor(c.phi.full));
           this.w[1] += f * (-(human.phi.aggH - c.phi.aggH));
           this.w[2] += f * (-(human.phi.maxH - c.phi.maxH));
           this.w[3] += f * (-(human.phi.holes - c.phi.holes));
