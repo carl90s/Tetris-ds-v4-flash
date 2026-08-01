@@ -48,7 +48,7 @@ style.css           样式（桌面 / 移动端响应式）
 game.js             核心逻辑（无 DOM 依赖，可单测）
 main.js             渲染 / 输入 / 音效 / UI
 test/game.test.js   核心逻辑单元测试（node:test）
-test/e2e.js         端到端验证（puppeteer-core + Edge）
+scripts/e2e.js      端到端验证（puppeteer-core + Edge）
 ```
 
 ## 测试
