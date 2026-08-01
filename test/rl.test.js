@@ -208,3 +208,27 @@ test('enumeratePlacements：竖 I 可落最左列（边缘列候选存在）', (
   const chosen = cands.find(c => c.rot === plan.rot && c.col === plan.col);
   assert.equal(chosen.phi.full, 4, 'RL 应选择边缘竖放消 4 行（实际 ' + chosen.phi.full + '）');
 });
+test('RLAgent：imitate 跳过制造高墙的人类落点（防教坏）', () => {
+  const rl = new RLAgent();
+  const g = playingGame();
+  // 左侧堆高墙到第 3 行（列 0 高 17），人类把 O 放柱顶（maxH 极高）
+  for (let r = 3; r < 20; r++) g.board[r][0] = '#x';
+  g.current = { type: 'O', matrix: SHAPES.O.matrix, color: SHAPES.O.color, x: 0, y: 0 };
+  g.updateGhost();
+  const w0 = rl.w.slice();
+  rl.imitate(g);
+  assert.deepEqual(rl.w, w0, '制造高墙的落点不应被学习');
+});
+
+test('RLAgent：imitate 学习正常落点仍生效', () => {
+  const rl = new RLAgent();
+  const g = playingGame();
+  g.current = { type: 'O', matrix: SHAPES.O.matrix, color: SHAPES.O.color, x: 4, y: 0 };
+  g.updateGhost();
+  const cands = AI.enumeratePlacements(g);
+  const human = cands.find(c => c.col === 4);
+  assert.ok(human && human.phi.maxH <= 2, '空棋盘中央落点应为低墙');
+  const before = rl.q(human.phi);
+  for (let i = 0; i < 20; i++) rl.imitate(g);
+  assert.ok(rl.q(human.phi) > before, '正常落点应被学习（价值上升）');
+});

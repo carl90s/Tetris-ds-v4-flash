@@ -502,6 +502,9 @@
         }
       }
       if (!human) return; // 人类落点不在枚举内（异常情况忽略）
+      // 质量门槛：人类落点若制造明显问题（多洞 / 高墙 / 超高落点），视为噪声操作，跳过不学
+      // —— 防止把玩家的坏习惯（如一侧堆墙）教给 AI
+      if (human.phi.holes > 1 || human.phi.maxH > 13 || human.phi.landing > 14) return;
       const qH = this.q(human.phi);
       const margin = 1.0;
       // 人类投喂降权（α×0.5）：人类操作含噪声，避免坏习惯被强化学到 AI
