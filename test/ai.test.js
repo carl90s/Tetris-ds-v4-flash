@@ -209,5 +209,24 @@ test('decide：请求体包含 response_format 强制 JSON', async () => {
   const ai = aiWith(spyFetch);
   await ai.decide(g);
   assert.deepEqual(capturedBody.response_format, { type: 'json_object' });
-  assert.equal(capturedBody.max_tokens, 500);
+  assert.equal(capturedBody.max_tokens, 2048);
+});
+test('decide：deepseek-reasoner 不加 response_format', async () => {
+  const g = playingGame();
+  let captured = null;
+  const spy = async (url, opts) => {
+    captured = JSON.parse(opts.body);
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"moves":["hard"]}' } }] }), text: async () => '' };
+  };
+  const ai = aiWith(spy, { model: 'deepseek-reasoner' });
+  await ai.decide(g);
+  assert.equal(captured.response_format, undefined, '推理模型不应强制 JSON');
+  assert.equal(captured.max_tokens, 2048);
+});
+
+test('decide：content 为空时回退 reasoning_content', async () => {
+  const g = playingGame();
+  const ai = aiWith(mockFetch({ choices: [{ message: { content: null, reasoning_content: '思考中…… {"moves":["left","hard"]}' } }] }));
+  const r = await ai.decide(g);
+  assert.ok(r.raw.includes('思考中'), 'raw 应包含 reasoning 内容');
 });

@@ -228,11 +228,13 @@
           { role: 'user', content: buildUserPrompt(game) }
         ],
         temperature: 0.2,
-        max_tokens: 500,
-        stream: false,
-        // 强制模型输出合法 JSON（DeepSeek/OpenAI/通义等 OpenAI 兼容服务均支持；不支持的实现通常忽略该字段）
-        response_format: { type: 'json_object' }
+        max_tokens: 2048, // 推理模型（reasoner）的思维链会占大量 token，需要更大配额
+        stream: false
       };
+      // 强制模型输出合法 JSON；但 deepseek-reasoner 等推理模型不支持 response_format（且思维链占满 token 时输出为空），跳过
+      if (!/reasoner|r1\b/i.test(this.settings.model)) {
+        body.response_format = { type: 'json_object' };
+      }
       const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
       const timer = ctrl ? setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS) : null;
       let resp;
@@ -257,9 +259,11 @@
         throw e;
       }
       const data = await resp.json();
-      const content = data && data.choices && data.choices[0] && data.choices[0].message
-        ? data.choices[0].message.content
-        : '';
+      const msg = data && data.choices && data.choices[0] && data.choices[0].message
+        ? data.choices[0].message
+        : null;
+      // 推理模型：最终输出可能在 reasoning_content，content 可能为空
+      const content = msg ? (msg.content || msg.reasoning_content || '') : '';
       const parsed = parseResponse(content);
       return { moves: parsed.moves, comment: parsed.comment, raw: String(content).slice(0, 120) };
     }

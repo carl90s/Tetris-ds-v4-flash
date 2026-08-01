@@ -342,9 +342,10 @@
         if (aiEmptyCount >= 3) {
           aiMode = false; // 模型始终不返回有效动作，停用避免无限堆叠
           aiPendingStart = false;
-          aiLastError = '模型连续 3 次未返回有效动作，已停用托管。模型回复：' + (result.raw ? result.raw.slice(0, 60) : '(空)') + '…';
+          const rawInfo = result.raw ? ('模型回复：' + result.raw.slice(0, 60) + '…') : ('模型回复为空（可能是 deepseek-reasoner 等推理模型输出超时，建议改用 deepseek-chat / gpt-4o-mini）');
+          aiLastError = '模型连续 3 次未返回有效动作，已停用托管。' + rawInfo;
         } else {
-          aiLastError = '模型未返回有效动作（第 ' + aiEmptyCount + ' 次）' + (result.raw ? '，回复：' + result.raw.slice(0, 40) : '');
+          aiLastError = '模型未返回有效动作（第 ' + aiEmptyCount + ' 次）' + (result.raw ? '，回复：' + result.raw.slice(0, 40) : '（回复为空，疑似推理模型）');
         }
         if (result.raw) console.warn('[AI] 未解析出动作，模型原始响应：', result.raw);
       } else {
