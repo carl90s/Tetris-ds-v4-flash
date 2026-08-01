@@ -93,6 +93,21 @@ const EDGE = [
   out.algoWorks = out.algoOn && out.algoScore > 0;
   await actx.close();
 
+  // ---- 强化学习引擎：切 RL 模式自动玩（学习不会崩、不卡顿） ----
+  const rctx = await browser.createBrowserContext();
+  const rpage = await rctx.newPage();
+  rpage.on('pageerror', e => errors.push('[rl pageerror] ' + e.message));
+  await rpage.goto('http://localhost:8901/index.html', { waitUntil: 'networkidle0' });
+  await new Promise(r => setTimeout(r, 400));
+  await rpage.$eval('#ai-engine', el => { el.value = 'rl'; el.dispatchEvent(new Event('change')); });
+  await rpage.$eval('#btn-ai', el => el.click()); // 开启 RL 托管
+  await new Promise(r => setTimeout(r, 4000));
+  out.rlOn = await rpage.$eval('#btn-ai', el => el.classList.contains('on'));
+  out.rlScore = await rpage.$eval('#stat-score', el => Number(el.textContent));
+  out.rlStatus = await rpage.$eval('#ai-status', el => el.textContent);
+  out.rlWorks = out.rlOn && out.rlScore > 0 && !out.rlStatus.includes('⚠');
+  await rctx.close();
+
   await page.screenshot({ path: path.join(__dirname, '..', 'shot-e2e.png') });
   out.errors = errors;
   console.log(JSON.stringify(out, null, 2));
@@ -106,6 +121,7 @@ const EDGE = [
     || !out.touchControlsVisible
     || out.touchButtonsMobile < 6
     || out.scoreAfterTouchHard <= 0
-    || !out.algoWorks;
+    || !out.algoWorks
+    || !out.rlWorks;
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error('E2E FAILED:', e); process.exit(1); });

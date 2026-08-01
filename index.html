@@ -50,6 +50,13 @@
         <section class="panel ai-panel">
           <h2>🤖 AI 托管</h2>
           <button id="btn-ai" class="ai-toggle off">开启 AI 托管</button>
+          <div class="ai-engine-row">
+            <label for="ai-engine">引擎</label>
+            <select id="ai-engine">
+              <option value="heuristic">启发式（稳定）</option>
+              <option value="rl">强化学习（越玩越强）</option>
+            </select>
+          </div>
           <div id="ai-status" class="ai-status">内置算法就绪 · 点击开启托管</div>
         </section>
       </aside>

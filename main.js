@@ -32,6 +32,7 @@
     btnRestart: $('btn-restart'),
     btnSound: $('btn-sound'),
     btnAi: $('btn-ai'),
+    aiEngine: $('ai-engine'),
     aiStatus: $('ai-status')
   };
 
@@ -40,6 +41,8 @@
   let aiBusy = false;
   let aiLastComment = '';
   let aiLastMoves = '';
+  let aiEngine = 'heuristic'; // heuristic | rl
+  const rlAgent = new TetrisAI.RLAgent();
 
   const BEST_KEY = 'tetris-highscore';
   const SOUND_KEY = 'tetris-sound';
@@ -284,7 +287,10 @@
     updateHUD();
     if (game.status === 'ready') showOverlay('ready');
     else if (game.status === 'paused') showOverlay('paused');
-    else if (game.status === 'over') { saveBest(); updateHUD(); showOverlay('over'); }
+    else if (game.status === 'over') {
+      saveBest(); updateHUD(); showOverlay('over');
+      if (aiEngine === 'rl') rlAgent.endEpisode(true); // 强化学习：吸收本局经验
+    }
     else hideOverlay();
   }
 
@@ -298,37 +304,66 @@
     els.btnAi.textContent = aiMode ? '🤖 托管中 · 点击停用' : '开启 AI 托管';
     els.btnAi.classList.toggle('on', aiMode);
     els.btnAi.classList.toggle('off', !aiMode);
-    if (!aiMode) { setAIStatus('内置算法就绪 · 点击开启托管', 'ok'); return; }
+    els.aiEngine.value = aiEngine;
+    if (!aiMode) {
+      setAIStatus(aiEngine === 'rl'
+        ? '强化学习就绪 · 已学 ' + rlAgent.episodes + ' 局（越玩越强）'
+        : '内置算法就绪 · 点击开启托管', 'ok');
+      return;
+    }
     if (aiBusy) { setAIStatus('AI 计算中…', 'ok'); return; }
     if (aiLastComment) {
       setAIStatus('AI：' + aiLastComment + (aiLastMoves ? ' ' + aiLastMoves : ''), 'ok');
       return;
     }
-    setAIStatus('AI 托管中', 'ok');
+    setAIStatus(aiEngine === 'rl' ? '强化学习托管中（已学 ' + rlAgent.episodes + ' 局）' : 'AI 托管中', 'ok');
   }
 
-  /** AI 回合：算法决策 → 旋转/移动/落底锁定 */
+  /** AI 回合：决策 → 旋转/移动/落底锁定 */
   async function launchAITurn() {
     const t0 = Date.now();
     aiBusy = true;
     updateAIUI();
     try {
-      aiLastComment = '内置算法';
-      const plan = TetrisAI.planBestPlacement(game);
-      if (plan && game.status === 'playing') {
-        for (let i = 0; i < plan.rot && game.status === 'playing' && game.current; i++) game.rotate(1);
-        const COLS = game.constructor.COLS || 10;
-        const target = Math.min(COLS - 1, Math.max(0, plan.col));
-        let guard = 0;
-        while (game.status === 'playing' && game.current && game.current.x < target && guard++ < 12) game.tryMove(1, 0);
-        while (game.status === 'playing' && game.current && game.current.x > target && guard++ < 12) game.tryMove(-1, 0);
-        if (game.status === 'playing' && game.current) {
+      if (aiEngine === 'rl') {
+        // ==== 强化学习引擎 ====
+        aiLastComment = '强化学习';
+        const plan = rlAgent.decide(game);
+        if (plan && game.status === 'playing') {
+          for (let i = 0; i < plan.rot && game.status === 'playing' && game.current; i++) game.rotate(1);
+          const COLS = game.constructor.COLS || 10;
+          const target = Math.min(COLS - 1, Math.max(0, plan.col));
+          let guard = 0;
+          while (game.status === 'playing' && game.current && game.current.x < target && guard++ < 12) game.tryMove(1, 0);
+          while (game.status === 'playing' && game.current && game.current.x > target && guard++ < 12) game.tryMove(-1, 0);
+          if (game.status === 'playing' && game.current) {
+            game.hardDrop();
+            rlAgent.observe(plan.phi, game); // TD 步级学习
+            aiLastMoves = '落点 第' + plan.col + '列 × 旋转' + plan.rot;
+          }
+        } else if (game.status === 'playing' && game.current) {
           game.hardDrop();
-          aiLastMoves = '落点 第' + plan.col + '列 × 旋转' + plan.rot;
+          aiLastMoves = '无安全落点，直落';
         }
-      } else if (game.status === 'playing' && game.current) {
-        game.hardDrop();
-        aiLastMoves = '无安全落点，直落';
+      } else {
+        // ==== 启发式引擎 ====
+        aiLastComment = '内置算法';
+        const plan = TetrisAI.planBestPlacement(game);
+        if (plan && game.status === 'playing') {
+          for (let i = 0; i < plan.rot && game.status === 'playing' && game.current; i++) game.rotate(1);
+          const COLS = game.constructor.COLS || 10;
+          const target = Math.min(COLS - 1, Math.max(0, plan.col));
+          let guard = 0;
+          while (game.status === 'playing' && game.current && game.current.x < target && guard++ < 12) game.tryMove(1, 0);
+          while (game.status === 'playing' && game.current && game.current.x > target && guard++ < 12) game.tryMove(-1, 0);
+          if (game.status === 'playing' && game.current) {
+            game.hardDrop();
+            aiLastMoves = '落点 第' + plan.col + '列 × 旋转' + plan.rot;
+          }
+        } else if (game.status === 'playing' && game.current) {
+          game.hardDrop();
+          aiLastMoves = '无安全落点，直落';
+        }
       }
     } catch (err) {
       aiLastMoves = '';
@@ -349,9 +384,15 @@
     aiLastMoves = '';
     if (aiMode) {
       ensureAudio();
+      if (aiEngine === 'rl') rlAgent.resetEpisode(); // 新一局，清空 RL 回合记录
       if (game.status === 'ready' || game.status === 'over') { startOrRestart(); }
       else if (game.status === 'paused') { doAction('pause'); }
     }
+    updateAIUI();
+  });
+
+  els.aiEngine.addEventListener('change', () => {
+    aiEngine = els.aiEngine.value === 'rl' ? 'rl' : 'heuristic';
     updateAIUI();
   });
   /* ---------- 动作（统一入口，带音效） ---------- */

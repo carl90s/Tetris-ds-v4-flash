@@ -292,6 +292,28 @@ body {
 .ai-status.err { color: #ff6e6e; }
 .ai-status.ok { color: #69f0ae; }
 
+.ai-engine-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ai-engine-row label { font-size: 12px; color: var(--muted); }
+
+.ai-engine-row select {
+  flex: 1;
+  padding: 7px 8px;
+  font-size: 13px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+  background: #0d1020;
+  color: var(--text);
+  outline: none;
+}
+
+.ai-engine-row select:focus { border-color: var(--accent); }
+
 /* ============ 设置弹窗 ============ */
 .modal {
   position: fixed;
