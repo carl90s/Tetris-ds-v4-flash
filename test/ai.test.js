@@ -147,7 +147,7 @@ test('loadSettings：无存储时返回默认值', () => {
   const s = loadSettings();
   assert.equal(s.provider, 'deepseek');
   assert.ok(s.baseUrl.length > 0);
-  assert.equal(s.model, 'deepseek-chat');
+  assert.equal(s.model, 'deepseek-v4-flash');
 });
 
 test('AI 模式 noGravity：tick 不推进下落', () => {
@@ -211,6 +211,19 @@ test('decide：请求体包含 response_format 强制 JSON', async () => {
   assert.deepEqual(capturedBody.response_format, { type: 'json_object' });
   assert.equal(capturedBody.max_tokens, 1024);
 });
+test('decide：deepseek-v4 关闭思考模式且强制 JSON', async () => {
+  const g = playingGame();
+  let captured = null;
+  const spy = async (url, opts) => {
+    captured = JSON.parse(opts.body);
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"moves":["hard"]}' } }] }), text: async () => '' };
+  };
+  const ai = aiWith(spy, { model: 'deepseek-v4-flash' });
+  await ai.decide(g);
+  assert.deepEqual(captured.thinking, { type: 'disabled' }, 'v4 应关闭思考模式');
+  assert.deepEqual(captured.response_format, { type: 'json_object' });
+});
+
 test('decide：deepseek-reasoner 不加 response_format', async () => {
   const g = playingGame();
   let captured = null;

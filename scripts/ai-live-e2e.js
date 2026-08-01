@@ -29,9 +29,9 @@ const EDGE = [
   await page.$eval('#btn-ai', el => el.click());
   await new Promise(r => setTimeout(r, 200));
   // 填入真实配置
-  await page.$eval('#ai-baseurl', el => { el.value = 'https://api.deepseek.com/v1'; el.dispatchEvent(new Event('input')); });
+  await page.$eval('#ai-baseurl', el => { el.value = 'https://api.deepseek.com'; el.dispatchEvent(new Event('input')); });
   await page.$eval('#ai-apikey', (el, k) => { el.value = k; el.dispatchEvent(new Event('input')); }, KEY);
-  await page.$eval('#ai-model', el => { el.value = 'deepseek-chat'; el.dispatchEvent(new Event('input')); });
+  await page.$eval('#ai-model', el => { el.value = 'deepseek-v4-flash'; el.dispatchEvent(new Event('input')); });
   await page.$eval('#ai-save', el => el.click()); // 保存并自动开启托管
 
   console.log('=== 真实 API AI 托管观察（15 秒） ===');

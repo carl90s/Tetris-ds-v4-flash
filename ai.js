@@ -14,7 +14,7 @@
 
   /** 预置服务商（OpenAI 兼容接口） */
   const PROVIDERS = {
-    deepseek: { label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+    deepseek: { label: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-v4-flash' },
     openai: { label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
     qwen: { label: '通义千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
     ollama: { label: 'Ollama 本地', baseUrl: 'http://localhost:11434/v1', model: 'qwen2.5:7b' },
@@ -64,7 +64,6 @@
   function defaultSettings() {
     return { provider: 'deepseek', baseUrl: PROVIDERS.deepseek.baseUrl, apiKey: '', model: PROVIDERS.deepseek.model, moveDelay: 60, batchSize: 3 };
   }
-
   function loadSettings() {
     const d = defaultSettings();
     try {
@@ -269,6 +268,9 @@
         max_tokens: 1024, // 对话模型输出较小；reasoner 推理模型可自行调大
         stream: false
       };
+      const isV4 = /v4/i.test(this.settings.model);
+      // DeepSeek v4 官方：思考模式默认开启（响应慢、只给 reasoning_content），游戏场景必须关闭
+      if (isV4) body.thinking = { type: 'disabled' };
       // 强制模型输出合法 JSON；但 deepseek-reasoner 等推理模型不支持 response_format（且思维链占满 token 时输出为空），跳过
       if (!/reasoner|r1\b/i.test(this.settings.model)) {
         body.response_format = { type: 'json_object' };
@@ -383,7 +385,8 @@
           body: JSON.stringify({
             model: this.settings.model,
             messages: [{ role: 'user', content: 'ping' }],
-            max_tokens: 5
+            max_tokens: 5,
+            thinking: /v4/i.test(this.settings.model) ? { type: 'disabled' } : undefined
           }),
           signal: ctrl ? ctrl.signal : undefined
         });

@@ -40,11 +40,13 @@ const body = {
   stream: false,
   response_format: { type: 'json_object' }
 };
+// DeepSeek v4：思考模式默认开启（只输出思维过程、响应慢），游戏场景必须关闭
+if (/v4/i.test(MODEL)) body.thinking = { type: 'disabled' };
 
 (async () => {
   const t0 = Date.now();
   try {
-    const resp = await fetch('https://api.deepseek.com/v1/chat/completions', {
+    const resp = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + KEY },
       body: JSON.stringify(body)
