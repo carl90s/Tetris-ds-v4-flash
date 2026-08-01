@@ -251,9 +251,17 @@ test('playTurns：一次决策连续放置 3 个方块', async () => {
 
 test('buildUserPrompt：批量包含后续方块信息', () => {
   const g = playingGame();
-  const p = AI.buildUserPrompt(g);
+  const p = AI.buildUserPrompt(g, 3);
   assert.ok(p.includes('方块 1'));
   assert.ok(p.includes('方块 2'));
   assert.ok(p.includes('方块 3'));
   assert.ok(p.includes('turns'));
+});
+
+test('buildUserPrompt：单回合模式不含批量要求', () => {
+  const g = playingGame();
+  const p = AI.buildUserPrompt(g, 1);
+  assert.ok(!p.includes('方块 2'), '单回合不应列出后续方块');
+  assert.ok(p.includes('{"moves":['), '单回合应使用 moves 格式');
+  assert.ok(!p.includes('turns 数组'), '单回合不应要求 turns');
 });

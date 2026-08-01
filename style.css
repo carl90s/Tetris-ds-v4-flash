@@ -359,3 +359,6 @@ body {
   .ai-panel { flex: 1 1 100%; }
 }
 .ai-note { font-size: 11px; color: var(--muted); line-height: 1.5; }
+
+.field.ai-check label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.field.ai-check input[type="checkbox"] { width: auto; accent-color: var(--accent); }

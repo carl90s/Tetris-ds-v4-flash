@@ -62,7 +62,7 @@
   }
 
   function defaultSettings() {
-    return { provider: 'deepseek', baseUrl: PROVIDERS.deepseek.baseUrl, apiKey: '', model: PROVIDERS.deepseek.model, moveDelay: 60 };
+    return { provider: 'deepseek', baseUrl: PROVIDERS.deepseek.baseUrl, apiKey: '', model: PROVIDERS.deepseek.model, moveDelay: 60, batchSize: 3 };
   }
 
   function loadSettings() {
@@ -76,14 +76,15 @@
         baseUrl: typeof s.baseUrl === 'string' && s.baseUrl ? s.baseUrl : d.baseUrl,
         apiKey: typeof s.apiKey === 'string' ? s.apiKey : '',
         model: typeof s.model === 'string' && s.model ? s.model : d.model,
-        moveDelay: Number.isFinite(s.moveDelay) ? Math.min(200, Math.max(10, s.moveDelay)) : d.moveDelay
+        moveDelay: Number.isFinite(s.moveDelay) ? Math.min(200, Math.max(10, s.moveDelay)) : d.moveDelay,
+        batchSize: s.batchSize === 1 ? 1 : 3
       };
     } catch (e) { return d; }
   }
 
   function saveSettings(s) {
     lsSet(SETTINGS_KEY, JSON.stringify({
-      provider: s.provider, baseUrl: s.baseUrl, apiKey: s.apiKey, model: s.model, moveDelay: s.moveDelay
+      provider: s.provider, baseUrl: s.baseUrl, apiKey: s.apiKey, model: s.model, moveDelay: s.moveDelay, batchSize: s.batchSize
     }));
   }
 
@@ -137,6 +138,8 @@
       '4. 不要输出解释性文字、不要用 Markdown 代码块，只输出 JSON。',
       '5. "hard" 必须是最后一个动作，且在此之前至少有一个移动或旋转动作（除非方块已经在目标位置正上方）。禁止输出只含 "hard" 的动作序列。',
       '6. 输出中不能包含注释文字、逗号缺失、多余标点等 JSON 语法问题。',
+      '7. 严格只输出一个 JSON 对象。禁止输出任何解释、复述、提示或说明文字——你的回复必须能被 JSON.parse 直接解析。',
+      '8. 如果实在无法判断动作，也请输出合法的兜底 JSON，例如 {"turns":[{"moves":["hard"]},{"moves":["hard"]},{"moves":["hard"]}],"comment":"兜底"}。',
       '动作序列示例：',
       '{"moves":["right","rotate","right","right","hard"],"comment":"旋转后放到第 6 列"}',
       '{"moves":["left","left","hard"],"comment":"放到第 3 列"}',
@@ -145,15 +148,15 @@
     ].join('\n');
   }
 
-  function buildUserPrompt(game) {
+  function buildUserPrompt(game, batchSize) {
     const SHAPES = game.constructor.SHAPES || {};
     const COLS = game.constructor.COLS || 10;
-    const BATCH = 3; // 一次请求规划 3 个方块，减少 API 往返
+    const BATCH = Math.min(3, Math.max(1, batchSize || 1));
     const lines = [
       '当前棋盘（.空 #已填）：',
       serializeBoard(game),
       '',
-      '即将连续放置 ' + BATCH + ' 个方块（按顺序）：'
+      BATCH > 1 ? ('即将连续放置 ' + BATCH + ' 个方块（按顺序）：') : '当前方块：'
     ];
     // 当前方块
     lines.push('方块 1：' + game.current.type + '，位置 x=' + game.current.x + ', y=' + game.current.y + '，朝向矩阵：');
@@ -168,9 +171,15 @@
       lines.push(shape.matrix.map(row => row.map(v => (v ? '1' : '0')).join(' ')).join(' | '));
     }
     lines.push('');
-    lines.push('请为每个方块分别规划放置动作，输出格式：');
-    lines.push('{"turns":[{"moves":["left","right","rotate","soft","hard"]},{"moves":[...]},{"moves":[...]}],"comment":"一句话说明"}');
-    lines.push('turns 数组长度必须等于 ' + BATCH + '；每个方块的动作中 "hard" 必须是最后一个动作。');
+    if (BATCH > 1) {
+      lines.push('请为每个方块分别规划放置动作，输出格式：');
+      lines.push('{"turns":[{"moves":["left","right","rotate","soft","hard"]},{"moves":[...]},{"moves":[...]}],"comment":"一句话说明"}');
+      lines.push('turns 数组长度必须等于 ' + BATCH + '；每个方块的动作中 "hard" 必须是最后一个动作。');
+    } else {
+      lines.push('请为当前方块规划放置动作，输出格式：');
+      lines.push('{"moves":["left","right","rotate","soft","hard"],"comment":"一句话说明"}');
+      lines.push('moves 数组中 "hard" 必须是最后一个动作。');
+    }
     return lines.join('\n');
   }
 
@@ -254,7 +263,7 @@
         model: this.settings.model,
         messages: [
           { role: 'system', content: buildSystemPrompt() },
-          { role: 'user', content: buildUserPrompt(game) }
+          { role: 'user', content: buildUserPrompt(game, this.settings.batchSize) }
         ],
         temperature: 0.2,
         max_tokens: 1024, // 对话模型输出较小；reasoner 推理模型可自行调大

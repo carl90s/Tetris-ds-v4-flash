@@ -150,7 +150,9 @@ const EDGE = [
   out.aiScoreAfterManual = await apage.$eval('#stat-score', el => Number(el.textContent));
   out.manualAfterAIWorks = out.aiScoreAfterManual > out.aiScore;
   // ---- AI 故障场景：API 500 → 错误信息显示且不被覆盖、自动停用 ----
-  const fpage = await browser.newPage();
+  // 独立 browser context：与 apage 隔离 localStorage，避免共享配置干扰
+  const fcontext = await browser.createBrowserContext();
+  const fpage = await fcontext.newPage();
   fpage.on('pageerror', e => errors.push('[fault pageerror] ' + e.message));
   await fpage.setRequestInterception(true);
   fpage.on('request', req => {
@@ -175,7 +177,8 @@ const EDGE = [
   while (Date.now() < fDeadline) {
     await new Promise(r => setTimeout(r, 250));
     const st = await fpage.$eval('#ai-status', el => el.textContent);
-    if (st.includes('⚠') || st.includes('失败')) break;
+    const fBtnOn = await fpage.$eval('#btn-ai', el => el.classList.contains('on'));
+    if ((st.includes('⚠') || st.includes('失败')) && !fBtnOn) break;
   } // 连续失败 2 次后自动停用
   out.faultStatusText = await fpage.$eval('#ai-status', el => el.textContent);
   out.faultStopped = await fpage.$eval('#btn-ai', el => !el.classList.contains('on'));

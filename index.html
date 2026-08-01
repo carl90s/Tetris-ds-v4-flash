@@ -77,6 +77,7 @@
         <p class="ai-note">API Key 仅保存在本机浏览器，请勿在公共或共享电脑上保存。</p>
         <div class="field"><label for="ai-model">模型名称</label><input id="ai-model" placeholder="model-name" spellcheck="false"></div>
         <div class="field"><label for="ai-delay">动作间隔 <span id="ai-delay-val">60</span>ms</label><input id="ai-delay" type="range" min="10" max="200" step="10" value="60"></div>
+        <div class="field ai-check"><label><input type="checkbox" id="ai-batch" checked> 批量决策（一次规划 3 个方块，更快；如模型输出异常请关闭）</label></div>
         <div id="ai-msg" class="ai-msg"></div>
         <div class="modal-actions">
           <button id="ai-test" class="mini-btn">测试连接</button>

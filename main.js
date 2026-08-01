@@ -41,6 +41,7 @@
     aiModel: $('ai-model'),
     aiDelay: $('ai-delay'),
     aiDelayVal: $('ai-delay-val'),
+    aiBatch: $('ai-batch'),
     aiMsg: $('ai-msg'),
     aiTest: $('ai-test'),
     aiSave: $('ai-save'),
@@ -388,6 +389,7 @@
     els.aiModel.value = ai.settings.model || '';
     els.aiDelay.value = ai.settings.moveDelay;
     els.aiDelayVal.textContent = ai.settings.moveDelay;
+    els.aiBatch.checked = ai.settings.batchSize !== 1;
     els.aiMsg.textContent = '';
     els.aiMsg.className = 'ai-msg';
     els.aiModal.classList.remove('hidden');
@@ -404,6 +406,7 @@
     ai.settings.model = els.aiModel.value.trim();
     ai.settings.moveDelay = parseInt(els.aiDelay.value, 10) || 60;
     els.aiDelayVal.textContent = ai.settings.moveDelay;
+    ai.settings.batchSize = els.aiBatch.checked ? 3 : 1;
   }
 
   els.btnAiSettings.addEventListener('click', openAIModal);
