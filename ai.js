@@ -193,7 +193,9 @@
           phi: {
             full: s.full, aggH: s.aggH, maxH: s.maxH, holes: s.holes,
             bump: s.bump, wellSum: s.wellSum, rowTrans: s.rowTrans,
-            landing: ROWS - (y + maxRow + 1) // 落点高度：方块最低格距底部
+            landing: ROWS - (y + maxRow + 1), // 落点高度：方块最低格距底部
+            maxH2: s.maxH * s.maxH,           // 非线性：最高列平方（冒尖加速惩罚）
+            aggH2: s.aggH * s.aggH / 100      // 非线性：总高平方归一化（堆高加速惩罚）
           }
         });
       }
@@ -213,8 +215,8 @@
   /* ============ 强化学习代理（REINFORCE with baseline） ============ */
 
   const RL_STORAGE_KEY = 'tetris-rl-state';
-  /** 初始权重 = 启发式默认（保证冷启动不弱于启发式），洞惩罚加大到 50；后两项为新增特征 wellSum/landing */
-  const RL_DEFAULT_W = [760, 1.5, 4, 50, 2, 18, 15, 2];
+  /** 初始权重 = 启发式默认（保证冷启动不弱于启发式）；洞/最高列惩罚加大；后 4 项为非线性特征 */
+  const RL_DEFAULT_W = [760, 1.5, 8, 50, 2, 18, 15, 2, 1.0, 0.5];
 
   /** 消行奖励表（rewardOf 用）：单次 1/2/3/4 行 = 50/200/500/1000 */
   const CLEAR_BONUS = [0, 50, 200, 500, 1000];
@@ -257,11 +259,14 @@
       if (!raw) return;
       try {
         const s = JSON.parse(raw);
-        if (Array.isArray(s.w) && s.w.length === 8) {
+        if (Array.isArray(s.w) && s.w.length === 10) {
           this.w = s.w.map(Number);
+        } else if (Array.isArray(s.w) && s.w.length === 8) {
+          // 8 维迁移：追加 maxH²/aggH² 默认值
+          this.w = s.w.map(Number).concat([1.0, 0.5]);
         } else if (Array.isArray(s.w) && s.w.length === 6) {
-          // 旧版 6 维权重迁移：追加 wellSum/landing 默认值
-          this.w = s.w.map(Number).concat([15, 2]);
+          // 旧版 6 维迁移：追加 wellSum/landing/maxH²/aggH² 默认值
+          this.w = s.w.map(Number).concat([15, 2, 1.0, 0.5]);
         }
         if (Number.isFinite(s.episodes)) this.episodes = s.episodes;
         if (Number.isFinite(s.eps)) this.eps = s.eps;
@@ -289,7 +294,9 @@
         - phi.bump * this.w[4]
         - phi.rowTrans * this.w[5]
         - (phi.wellSum || 0) * this.w[6]
-        - (phi.landing || 0) * this.w[7];
+        - (phi.landing || 0) * this.w[7]
+        - (phi.maxH2 || 0) * this.w[8]
+        - (phi.aggH2 || 0) * this.w[9];
     }
 
     /** 决策：ε-greedy 选 Q 最高落点（含 2 步前瞻：考虑接下来 2 个方块在此放置后的价值） */
@@ -321,8 +328,8 @@
     rewardOf(phi) {
       // 消行递增奖励更陡：单次 1/2/3/4 行 = 50/200/500/1000（强鼓励攒多行爆发）
       const clear = Math.min(4, phi.full);
-      // 洞惩罚加大（即时）：每个洞 -60
-      return (CLEAR_BONUS[clear] || 0) - phi.aggH * 1.0 - phi.holes * 60 - phi.maxH * 2;
+      // 洞惩罚加大（即时）：每个洞 -60；最高列惩罚加大：每格 -5
+      return (CLEAR_BONUS[clear] || 0) - phi.aggH * 1.0 - phi.holes * 60 - phi.maxH * 5;
     }
 
     /** 棋盘上下文（SHAPES/旋转/尺寸），供 valueOfBoard 使用 */
@@ -378,7 +385,7 @@
       // 未来价值：接下来 3 个方块的最优落点价值（折扣叠加）
       const future = this.futureValue(game, 3);
       // 存入回放池（环形缓冲）
-      const exp = { phi: { full: phi.full, aggH: phi.aggH, maxH: phi.maxH, holes: phi.holes, bump: phi.bump, rowTrans: phi.rowTrans, wellSum: phi.wellSum, landing: phi.landing }, reward, future };
+      const exp = { phi: { full: phi.full, aggH: phi.aggH, maxH: phi.maxH, holes: phi.holes, bump: phi.bump, rowTrans: phi.rowTrans, wellSum: phi.wellSum, landing: phi.landing, maxH2: phi.maxH2, aggH2: phi.aggH2 }, reward, future };
       if (this.replay.length < this.replayCapacity) this.replay.push(exp);
       else this.replay[this.replayIdx] = exp;
       this.replayIdx = (this.replayIdx + 1) % this.replayCapacity;
@@ -405,7 +412,9 @@
         delta * (-exp.phi.bump),
         delta * (-exp.phi.rowTrans),
         delta * (-(exp.phi.wellSum || 0)),
-        delta * (-(exp.phi.landing || 0))
+        delta * (-(exp.phi.landing || 0)),
+        delta * (-(exp.phi.maxH2 || 0)),
+        delta * (-(exp.phi.aggH2 || 0))
       ];
       for (let i = 0; i < this.w.length; i++) {
         this.g2[i] += grads[i] * grads[i];
@@ -417,12 +426,14 @@
     clampWeights() {
       this.w[0] = Math.min(2000, Math.max(200, this.w[0]));
       this.w[1] = Math.min(100, Math.max(1.0, this.w[1]));
-      this.w[2] = Math.min(60, Math.max(2.0, this.w[2]));
+      this.w[2] = Math.min(120, Math.max(4.0, this.w[2]));   // maxH（下限提高到 4）
       this.w[3] = Math.min(200, Math.max(25, this.w[3]));
       this.w[4] = Math.min(40, Math.max(1.0, this.w[4]));
       this.w[5] = Math.min(200, Math.max(10, this.w[5]));
-      this.w[6] = Math.min(150, Math.max(5, this.w[6]));   // wellSum
-      this.w[7] = Math.min(30, Math.max(0.5, this.w[7]));  // landing
+      this.w[6] = Math.min(150, Math.max(5, this.w[6]));     // wellSum
+      this.w[7] = Math.min(30, Math.max(0.5, this.w[7]));    // landing
+      this.w[8] = Math.min(40, Math.max(0.3, this.w[8]));    // maxH²
+      this.w[9] = Math.min(25, Math.max(0.1, this.w[9]));    // aggH²
     }
 
     /** 回合结束：结算统计与探索衰减 */
@@ -479,6 +490,8 @@
           this.w[5] += f * (-(human.phi.rowTrans - c.phi.rowTrans));
           this.w[6] += f * (-(human.phi.wellSum - c.phi.wellSum));
           this.w[7] += f * (-(human.phi.landing - c.phi.landing));
+          this.w[8] += f * (-((human.phi.maxH2 || 0) - (c.phi.maxH2 || 0)));
+          this.w[9] += f * (-((human.phi.aggH2 || 0) - (c.phi.aggH2 || 0)));
           updated = true;
         }
       }
@@ -493,6 +506,7 @@
         full: this.w[0], aggH: this.w[1], maxH: this.w[2],
         holes: this.w[3], bump: this.w[4], rowTrans: this.w[5],
         wellSum: this.w[6], landing: this.w[7],
+        maxH2: this.w[8], aggH2: this.w[9],
         episodes: this.episodes, eps: this.eps
       };
     }

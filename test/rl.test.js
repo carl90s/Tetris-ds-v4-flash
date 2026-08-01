@@ -34,11 +34,11 @@ test('enumeratePlacements：空棋盘枚举 40 个候选', () => {
   }
 });
 
-test('RLAgent：初始权重 q 计算正确（洞惩罚加大到 50）', () => {
+test('RLAgent：初始权重 q 计算正确（洞 50 / maxH 8）', () => {
   const rl = new RLAgent();
   const phi = { full: 1, aggH: 10, maxH: 5, holes: 2, bump: 3, rowTrans: 20 };
   const q = rl.q(phi);
-  const expected = 760 * 1 - 1.5 * 10 - 4 * 5 - 50 * 2 - 2 * 3 - 18 * 20;
+  const expected = 760 * 1 - 1.5 * 10 - 8 * 5 - 50 * 2 - 2 * 3 - 18 * 20;
   assert.ok(Math.abs(q - expected) < 1e-9);
 });
 
@@ -176,12 +176,16 @@ test('RLAgent：回放池环形缓冲上限', () => {
   }
   assert.ok(rl.replay.length <= 10, '环形缓冲应限制在容量内');
 });
-test('RLAgent：8 维权重含 wellSum/landing 且作为惩罚生效', () => {
+test('RLAgent：10 维权重含非线性特征且作为惩罚生效', () => {
   const rl = new RLAgent();
-  assert.equal(rl.w.length, 8);
-  assert.equal(rl.g2.length, 8, 'AdaGrad 累计应为 8 维');
-  const phi = { full: 0, aggH: 0, maxH: 0, holes: 0, bump: 0, rowTrans: 0, wellSum: 10, landing: 5 };
-  const qWith = rl.q(phi);
-  const qWithout = rl.q({ ...phi, wellSum: 0, landing: 0 });
-  assert.ok(qWith < qWithout, 'wellSum/landing 应降低 Q（惩罚项）');
+  assert.equal(rl.w.length, 10);
+  assert.equal(rl.g2.length, 10, 'AdaGrad 累计应为 10 维');
+  // 非线性惩罚：maxH² 与 aggH² 应降低 Q
+  const base = { full: 0, aggH: 0, maxH: 0, holes: 0, bump: 0, rowTrans: 0, wellSum: 0, landing: 0 };
+  const qLinear = rl.q({ ...base, maxH: 8, aggH: 0 });
+  const qNonlin = rl.q({ ...base, maxH: 8, aggH: 0, maxH2: 64, aggH2: 0 });
+  assert.ok(qNonlin < qLinear, 'maxH² 应额外降低 Q（非线性惩罚）');
+  // maxH 即时惩罚加大：每格 -5
+  const r = rl.rewardOf({ full: 0, aggH: 0, holes: 0, maxH: 4, bump: 0, rowTrans: 0 });
+  assert.equal(r, -20, 'maxH 即时惩罚应为 -5/格（实际 ' + r + '）');
 });
