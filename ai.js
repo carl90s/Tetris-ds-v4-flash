@@ -75,12 +75,12 @@
     let bump = 0;
     for (let c = 1; c < COLS; c++) bump += Math.abs(hs[c] - hs[c - 1]);
     // 井深和（Dellacherie 关键特征）：两侧高于自身的深槽，I 块垂直放入可消 4 行
+    // 用从底部往上的高度 hs：中间低、两侧高才算井；边缘列（无真实两侧壁）不算
     let wellSum = 0;
-    const topH = hs.map(h => ROWS - h); // 转为“距顶部”高度（越大越高）
-    for (let c = 0; c < COLS; c++) {
-      const left = c > 0 ? topH[c - 1] : ROWS;
-      const right = c < COLS - 1 ? topH[c + 1] : ROWS;
-      const well = Math.max(0, Math.min(left, right) - topH[c]);
+    for (let c = 1; c < COLS - 1; c++) {
+      const left = hs[c - 1];
+      const right = hs[c + 1];
+      const well = Math.max(0, Math.min(left, right) - hs[c]);
       wellSum += (well * (well + 1)) / 2;
     }
     // 行过渡：每行 空↔实 的变化次数（表面平整度，比凸度更全面）

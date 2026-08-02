@@ -232,3 +232,17 @@ test('RLAgent：imitate 学习正常落点仍生效', () => {
   for (let i = 0; i < 20; i++) rl.imitate(g);
   assert.ok(rl.q(human.phi) > before, '正常落点应被学习（价值上升）');
 });
+test('evalBoard：边缘列不算井（避免假井诱导填边）', () => {
+  const g = playingGame();
+  // 列 1 堆高 2，列 0 空——修复前列 0 被当“深井”（wellSum 虚高）
+  g.board[18][1] = '#x'; g.board[19][1] = '#x';
+  const s = AI.evalBoard(g.board);
+  assert.equal(s.wellSum, 0, '边缘空列不应产生井深（实际 ' + s.wellSum + '）');
+  // 中间列两侧高仍算井
+  const g2 = playingGame();
+  g2.board[18][2] = '#x'; g2.board[19][2] = '#x'; // 列 2 高 2
+  g2.board[18][4] = '#x'; g2.board[19][4] = '#x'; // 列 4 高 2
+  g2.board[19][3] = '#x';                          // 列 3 高 1
+  const s2 = AI.evalBoard(g2.board);
+  assert.ok(s2.wellSum > 0, '中间真井应产生井深（实际 ' + s2.wellSum + '）');
+});

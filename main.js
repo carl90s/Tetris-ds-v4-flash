@@ -352,7 +352,7 @@
         if (plan && game.status === 'playing') {
           for (let i = 0; i < plan.rot && game.status === 'playing' && game.current; i++) game.rotate(1);
           const COLS = game.constructor.COLS || 10;
-          const target = Math.min(COLS - 1, Math.max(0, plan.col));
+          const target = plan.col; // 允许负 col（竖 I 落边缘列），不再 clamp
           let guard = 0;
           while (game.status === 'playing' && game.current && game.current.x < target && guard++ < 12) game.tryMove(1, 0);
           while (game.status === 'playing' && game.current && game.current.x > target && guard++ < 12) game.tryMove(-1, 0);
@@ -372,7 +372,7 @@
         if (plan && game.status === 'playing') {
           for (let i = 0; i < plan.rot && game.status === 'playing' && game.current; i++) game.rotate(1);
           const COLS = game.constructor.COLS || 10;
-          const target = Math.min(COLS - 1, Math.max(0, plan.col));
+          const target = plan.col; // 允许负 col（竖 I 落边缘列），不再 clamp
           let guard = 0;
           while (game.status === 'playing' && game.current && game.current.x < target && guard++ < 12) game.tryMove(1, 0);
           while (game.status === 'playing' && game.current && game.current.x > target && guard++ < 12) game.tryMove(-1, 0);
@@ -571,4 +571,7 @@
 
   refreshUI();
   updateAIUI();
+
+  // 调试接口：供自动化测试读取游戏内部状态
+  window.__tetris = { game, rlAgent, get aiEngine() { return aiEngine; }, get aiMode() { return aiMode; } };
 })();
