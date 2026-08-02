@@ -279,3 +279,25 @@ test('RLAgent：10 万分里程碑奖励（每档 1200，强度介于 4 行消�
   rl2.endEpisode(true, 50000, 300000);
   assert.deepEqual(rl2.w, w2, '低于 10 万且未创新高不应触发');
 });
+test('RLAgent：100 万分里程碑奖励（每档 3000，介于 10 万档与创新高之间）', () => {
+  const rl = new RLAgent();
+  const g = playingGame();
+  for (let i = 0; i < 10; i++) rl.observe({ full: 1, aggH: 5, maxH: 3, holes: 0, bump: 2, rowTrans: 10, wellSum: 2, landing: 1, maxH2: 9, aggH2: 0.25 }, g);
+  const wBefore = rl.w.slice();
+  // 250 万分：跨 2 个百万档 + 25 个十万档，未创新高（prevBest 更大）
+  rl.endEpisode(true, 2500000, 9999999);
+  assert.ok(rl.w.some((v, i) => Math.abs(v - wBefore[i]) > 1), '跨百万档应触发奖励');
+  // 50 万分：只跨 10 万档（5 档），不跨百万档
+  const rl2 = new RLAgent();
+  for (let i = 0; i < 10; i++) rl2.observe({ full: 1, aggH: 5, maxH: 3, holes: 0, bump: 2, rowTrans: 10 }, g);
+  const w2a = rl2.w.slice();
+  rl2.endEpisode(true, 500000, 9999999);
+  const d2 = Math.abs(rl2.w[0] - w2a[0]);
+  // 50 万分只有 10 万档奖励（5×2000=10000），无百万档（0×3000）
+  const rl3 = new RLAgent();
+  for (let i = 0; i < 10; i++) rl3.observe({ full: 1, aggH: 5, maxH: 3, holes: 0, bump: 2, rowTrans: 10 }, g);
+  const w3a = rl3.w.slice();
+  rl3.endEpisode(true, 1000000, 9999999);
+  const d3 = Math.abs(rl3.w[0] - w3a[0]);
+  assert.ok(d3 > d2, '100 万分（含百万档）奖励应大于 50 万分（仅十万档）');
+});

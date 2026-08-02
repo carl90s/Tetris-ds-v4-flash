@@ -481,6 +481,10 @@
       const MILESTONE = 100000, MILESTONE_BONUS = 2000;
       const milestones = Math.floor(score / MILESTONE);
       if (milestones > 0) bonus += milestones * MILESTONE_BONUS;
+      // 3) 单局每跨过 100 万整数关口：每档 3000（介于 10 万档与创新高之间）
+      const MILESTONE2 = 1000000, MILESTONE2_BONUS = 3000;
+      const milestones2 = Math.floor(score / MILESTONE2);
+      if (milestones2 > 0) bonus += milestones2 * MILESTONE2_BONUS;
       // 回溯强化本局所有步（从后往前折扣分配）
       if (bonus > 0 && this.steps.length) {
         let factor = 1;
