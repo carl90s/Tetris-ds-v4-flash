@@ -473,9 +473,16 @@
      * @param {number}  prevBest  本局开始前的历史最高分
      */
     endEpisode(over, score = 0, prevBest = 0) {
-      // 创新高：回溯强化本局所有步（从后往前折扣分配）
-      if (score > prevBest && this.steps.length) {
-        const bonus = 1500 + (score - prevBest) * 3; // 强度 > 4 行消除(1000)，分数越高越强
+      // 激励汇总：创新高 + 10 万分里程碑
+      let bonus = 0;
+      // 1) 总分创新高：基础 1500（>4 行消除 1000），超出纪录每 1 分 +3
+      if (score > prevBest) bonus += 1500 + (score - prevBest) * 3;
+      // 2) 单局每跨过 10 万整数关口：每档 1200（强度介于 4 行消除与创新高之间）
+      const MILESTONE = 100000, MILESTONE_BONUS = 1200;
+      const milestones = Math.floor(score / MILESTONE);
+      if (milestones > 0) bonus += milestones * MILESTONE_BONUS;
+      // 回溯强化本局所有步（从后往前折扣分配）
+      if (bonus > 0 && this.steps.length) {
         let factor = 1;
         for (let i = this.steps.length - 1; i >= 0; i--) {
           const phi = this.steps[i].phi;

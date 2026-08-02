@@ -264,3 +264,18 @@ test('RLAgent：未创新高不触发激励', () => {
   rl.endEpisode(true, 500, 1000); // 低于历史最高
   assert.deepEqual(rl.w, wBefore, '未创新高不应改变权重');
 });
+test('RLAgent：10 万分里程碑奖励（每档 1200，强度介于 4 行消与创新高之间）', () => {
+  const rl = new RLAgent();
+  const g = playingGame();
+  for (let i = 0; i < 10; i++) rl.observe({ full: 1, aggH: 5, maxH: 3, holes: 0, bump: 2, rowTrans: 10, wellSum: 2, landing: 1, maxH2: 9, aggH2: 0.25 }, g);
+  // 未创新高但跨过 2 个 10 万关口（score 250000 > prevBest 300000 则不触发创新高）
+  const wBefore = rl.w.slice();
+  rl.endEpisode(true, 250000, 300000);
+  assert.ok(rl.w.some((v, i) => Math.abs(v - wBefore[i]) > 1), '跨 10 万关口应触发奖励');
+  // 低于 10 万且未创新高 → 无激励
+  const rl2 = new RLAgent();
+  for (let i = 0; i < 10; i++) rl2.observe({ full: 0, aggH: 5, maxH: 3, holes: 1, bump: 2, rowTrans: 10 }, g);
+  const w2 = rl2.w.slice();
+  rl2.endEpisode(true, 50000, 300000);
+  assert.deepEqual(rl2.w, w2, '低于 10 万且未创新高不应触发');
+});
