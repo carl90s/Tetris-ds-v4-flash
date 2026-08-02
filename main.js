@@ -294,9 +294,11 @@
     if (game.status === 'ready') showOverlay('ready');
     else if (game.status === 'paused') showOverlay('paused');
     else if (game.status === 'over') {
+      if (aiEngine === 'rl') {
+        rlAgent.endEpisode(true, game.score, bestScore); // 吸收本局经验 + 总分创新高激励（saveBest 前传旧纪录）
+      }
       saveBest(); updateHUD(); showOverlay('over');
       if (aiEngine === 'rl') {
-        rlAgent.endEpisode(true); // 强化学习：吸收本局经验
         // 自动训练：达到设定局数后停止自动重开
         if (rlLeft > 0) {
           rlLeft--;

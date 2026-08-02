@@ -246,3 +246,21 @@ test('evalBoard：边缘列不算井（避免假井诱导填边）', () => {
   const s2 = AI.evalBoard(g2.board);
   assert.ok(s2.wellSum > 0, '中间真井应产生井深（实际 ' + s2.wellSum + '）');
 });
+test('RLAgent：总分创新高触发大额激励（强度 > 4 行消除）', () => {
+  const rl = new RLAgent();
+  const g = playingGame();
+  for (let i = 0; i < 10; i++) rl.observe({ full: 1, aggH: 5, maxH: 3, holes: 0, bump: 2, rowTrans: 10, wellSum: 2, landing: 1, maxH2: 9, aggH2: 0.25 }, g);
+  const wBefore = rl.w.slice();
+  rl.endEpisode(true, 10000, 1000); // 创新高
+  assert.ok(rl.w.some((v, i) => Math.abs(v - wBefore[i]) > 1), '创新高应显著改变权重');
+  assert.equal(rl.episodes, 1);
+});
+
+test('RLAgent：未创新高不触发激励', () => {
+  const rl = new RLAgent();
+  const g = playingGame();
+  for (let i = 0; i < 10; i++) rl.observe({ full: 0, aggH: 5, maxH: 3, holes: 1, bump: 2, rowTrans: 10 }, g);
+  const wBefore = rl.w.slice();
+  rl.endEpisode(true, 500, 1000); // 低于历史最高
+  assert.deepEqual(rl.w, wBefore, '未创新高不应改变权重');
+});

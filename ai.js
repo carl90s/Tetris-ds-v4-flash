@@ -464,8 +464,35 @@
       this.w[9] = Math.min(25, Math.max(0.1, this.w[9]));    // aggH²
     }
 
-    /** 回合结束：结算统计与探索衰减 */
-    endEpisode(over) {
+    /**
+     * 回合结束：结算统计与探索衰减。
+     * 创新高激励：本局总分超过历史最高（prevBest）时，对整局所有步做一次大额回溯强化——
+     * 基础激励 1500（大于 4 行消除的 1000），且创纪录越多激励越强（每超出 1 分 +3）。
+     * @param {boolean} over      是否游戏结束
+     * @param {number}  score     本局总分
+     * @param {number}  prevBest  本局开始前的历史最高分
+     */
+    endEpisode(over, score = 0, prevBest = 0) {
+      // 创新高：回溯强化本局所有步（从后往前折扣分配）
+      if (score > prevBest && this.steps.length) {
+        const bonus = 1500 + (score - prevBest) * 3; // 强度 > 4 行消除(1000)，分数越高越强
+        let factor = 1;
+        for (let i = this.steps.length - 1; i >= 0; i--) {
+          const phi = this.steps[i].phi;
+          this.w[0] += this.alpha * 0.5 * bonus * factor * clearFactor(phi.full);
+          this.w[1] += this.alpha * 0.5 * bonus * factor * (-phi.aggH);
+          this.w[2] += this.alpha * 0.5 * bonus * factor * (-phi.maxH);
+          this.w[3] += this.alpha * 0.5 * bonus * factor * (-phi.holes);
+          this.w[4] += this.alpha * 0.5 * bonus * factor * (-phi.bump);
+          this.w[5] += this.alpha * 0.5 * bonus * factor * (-phi.rowTrans);
+          this.w[6] += this.alpha * 0.5 * bonus * factor * (-(phi.wellSum || 0));
+          this.w[7] += this.alpha * 0.5 * bonus * factor * (-(phi.landing || 0));
+          this.w[8] += this.alpha * 0.5 * bonus * factor * (-(phi.maxH2 || 0));
+          this.w[9] += this.alpha * 0.5 * bonus * factor * (-(phi.aggH2 || 0));
+          factor *= this.gamma;
+        }
+        this.clampWeights();
+      }
       this.episodes++;
       this.eps = Math.max(0.03, this.eps * 0.97);
       this.steps = [];
