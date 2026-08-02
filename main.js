@@ -44,7 +44,7 @@
   let aiBusy = false;
   let aiLastComment = '';
   let aiLastMoves = '';
-  let aiEngine = 'heuristic'; // heuristic | rl
+  let aiEngine = 'rl'; // 默认强化学习（heuristic | rl）
   const rlAgent = new TetrisAI.RLAgent();
   let learnHuman = true; // 人玩时投喂 RL（模仿学习）
   let rlLeft = 0;                        // 自动训练剩余局数
